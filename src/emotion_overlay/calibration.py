@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 MAX_BIAS = 3.0
 
 # Two lines per emotion, interleaved so the same emotion never comes twice in a row.
-_LINES: dict[str, tuple[str, str]] = {
+LINES: dict[str, tuple[str, str]] = {
     "joy": ("Yes! We finally won, this is amazing!", "I love this so much, best day ever!"),
     "anger": ("Are you kidding me? That is so unfair!", "I'm done, this game is ridiculous!"),
     "sadness": (
@@ -52,7 +52,7 @@ _LINES: dict[str, tuple[str, str]] = {
     "neutral": ("The next match starts in about five minutes.", "I'm going to check the settings."),
 }
 PROMPTS: tuple[tuple[str, str], ...] = tuple(
-    (emotion, lines[i]) for i in range(2) for emotion, lines in _LINES.items()
+    (emotion, lines[i]) for i in range(2) for emotion, lines in LINES.items()
 )
 
 

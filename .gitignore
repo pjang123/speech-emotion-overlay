@@ -24,3 +24,6 @@ models/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Evaluation: cached per-clip outputs include transcripts; reports are committed
+eval/results/*/predictions.jsonl
