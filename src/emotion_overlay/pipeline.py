@@ -47,6 +47,8 @@ class PipelineEvents:
     # tiers and per-utterance image rotation can react) and on time-based changes.
     on_state: Callable[[EmotionState, bool], None]
     on_message: Callable[[Message], None]  # status, vad and debug messages
+    # Each utterance's transcript, as soon as it's known (for word triggers).
+    on_words: Callable[[str], None] = lambda text: None
 
 
 class Pipeline:
@@ -275,6 +277,12 @@ class Pipeline:
         self._recorder.record(utterance.audio, SAMPLE_RATE, text)
 
         listener = self._calibration_listener
+        if text and not listener:
+            # Before emotion scoring, so a trigger shows as soon as the words are known.
+            try:
+                self._events.on_words(text)
+            except Exception:
+                log.exception("Word trigger handling failed")
         text_scores: Scores = {}
         window_text = ""
         if text:

@@ -7,6 +7,8 @@ const $ = (id) => document.getElementById(id);
 
 const ui = {
   emotions: [],
+  imageGroups: [],
+  triggers: [],
   images: [],
   defaultImage: null,
   maxBytes: 10 * 1024 * 1024,
@@ -157,10 +159,104 @@ async function loadImages() {
   ui.defaultImage = data.default_image;
   ui.maxBytes = data.max_bytes;
   renderImages();
+  await loadTriggers(); // deleting an image also deletes its triggers
 }
 
+// --- word triggers ---------------------------------------------------------------
+
+async function loadTriggers() {
+  ui.triggers = (await api("/api/triggers")).triggers;
+  renderTriggers();
+}
+
+const imageLabel = (img) => `${img.original_name} (${GROUP_LABELS[img.emotion] ?? img.emotion})`;
+
+function renderTriggerImageOptions() {
+  const select = $("trigger-image");
+  const current = select.value;
+  // Trigger-only images first, since that's what they're for.
+  const images = [...ui.images].sort((a, b) => (b.emotion === "trigger") - (a.emotion === "trigger"));
+  select.replaceChildren(
+    ...(images.length
+      ? images.map((img) => el("option", { value: img.id, textContent: imageLabel(img) }))
+      : [el("option", { value: "", textContent: "Upload an image first" })]),
+  );
+  if (images.some((img) => img.id === current)) select.value = current;
+}
+
+function renderTriggers() {
+  renderTriggerImageOptions();
+  const byId = Object.fromEntries(ui.images.map((img) => [img.id, img]));
+  const rows = ui.triggers.map((t) => {
+    const img = byId[t.image_id];
+    const duration = el("input", { type: "number", min: 0.5, max: 60, step: 0.5, value: t.duration_s });
+    duration.addEventListener("change", () => updateTrigger(t.id, { duration_s: Number(duration.value) }));
+    const remove = el("button", { className: "icon danger", title: "Delete trigger", textContent: "✕" });
+    remove.addEventListener("click", () => deleteTrigger(t));
+    return el(
+      "div",
+      { className: "trigger-row" },
+      img ? el("img", { className: "trigger-thumb", src: img.url, alt: img.original_name }) : el("span"),
+      el("span", { className: "trigger-phrases", textContent: t.phrases.map((p) => `“${p}”`).join(", ") }),
+      el("label", { className: "inline", title: "Seconds to show the image" }, duration, " s"),
+      button("Test", () => testTrigger(t.id)),
+      remove,
+    );
+  });
+  $("triggers").replaceChildren(
+    ...(rows.length ? rows : [el("p", { className: "muted small", textContent: "No triggers yet." })]),
+  );
+}
+
+async function addTrigger() {
+  const body = {
+    phrases: $("trigger-phrases").value,
+    image_id: $("trigger-image").value,
+    duration_s: Number($("trigger-duration").value) || 3,
+  };
+  try {
+    await sendJson("/api/triggers", "POST", body);
+    $("trigger-phrases").value = "";
+    flash("trigger-msg", "Trigger added. Say it, or click Test.");
+  } catch (err) {
+    flash("trigger-msg", err.message, true);
+  }
+  await loadTriggers();
+}
+
+async function updateTrigger(id, changes) {
+  try {
+    await sendJson(`/api/triggers/${id}`, "PUT", changes);
+    flash("trigger-msg", "Saved.");
+  } catch (err) {
+    flash("trigger-msg", err.message, true);
+  }
+  await loadTriggers();
+}
+
+async function deleteTrigger(trigger) {
+  if (!confirm(`Delete the trigger for ${trigger.phrases.map((p) => `"${p}"`).join(", ")}?`)) return;
+  try {
+    await api(`/api/triggers/${trigger.id}`, { method: "DELETE" });
+  } catch (err) {
+    flash("trigger-msg", err.message, true);
+  }
+  await loadTriggers();
+}
+
+async function testTrigger(id) {
+  try {
+    await api(`/api/triggers/${id}/test`, { method: "POST" });
+    flash("trigger-msg", "Showing it on the overlay now.");
+  } catch (err) {
+    flash("trigger-msg", err.message, true);
+  }
+}
+
+const GROUP_LABELS = { trigger: "Word triggers only" };
+
 function renderImages() {
-  const cards = ui.emotions.map((emotion) => {
+  const cards = ui.imageGroups.map((emotion) => {
     const mine = ui.images.filter((img) => img.emotion === emotion);
     const input = el("input", {
       type: "file",
@@ -169,16 +265,32 @@ function renderImages() {
       hidden: true,
     });
     input.addEventListener("change", () => upload(emotion, input.files));
-    const add = el("button", { className: "secondary", textContent: "Add" });
+    const add = el("button", { className: "secondary", textContent: "Add", title: "Upload image or GIF files" });
     add.addEventListener("click", () => input.click());
+    const link = el("button", { className: "secondary", textContent: "Link", title: "Add a GIF from a link" });
+    link.addEventListener("click", () => {
+      const url = prompt(
+        `Paste a link to a GIF or image for "${GROUP_LABELS[emotion] ?? emotion}".\n` +
+          "Direct links work, and so do Tenor/Giphy page links.",
+      );
+      if (url && url.trim()) addFromLink(emotion, url.trim());
+    });
 
     const thumbs = el("div", { className: "thumbs" }, ...mine.map(thumbnail));
-    if (!mine.length) thumbs.append(el("p", { className: "muted small", textContent: "No images" }));
+    if (!mine.length) {
+      const hint = emotion === "trigger" ? "Images here are only shown by word triggers" : "No images";
+      thumbs.append(el("p", { className: "muted small", textContent: hint }));
+    }
 
     const card = el(
       "div",
-      { className: "emotion" },
-      el("div", { className: "emotion-head" }, el("h3", { textContent: emotion }), add),
+      { className: `emotion${emotion === "trigger" ? " trigger-group" : ""}` },
+      el(
+        "div",
+        { className: "emotion-head" },
+        el("h3", { textContent: GROUP_LABELS[emotion] ?? emotion }),
+        el("div", { className: "head-buttons" }, add, link),
+      ),
       thumbs,
       input,
     );
@@ -190,11 +302,30 @@ function renderImages() {
     card.addEventListener("drop", (e) => {
       e.preventDefault();
       card.classList.remove("drop");
-      upload(emotion, e.dataTransfer.files);
+      if (e.dataTransfer.files.length) {
+        upload(emotion, e.dataTransfer.files);
+        return;
+      }
+      // An image dragged from another browser tab arrives as a link.
+      const url = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain"))
+        .split("\n")
+        .find((line) => line.startsWith("http"));
+      if (url) addFromLink(emotion, url.trim());
     });
     return card;
   });
   $("emotions").replaceChildren(...cards);
+}
+
+async function addFromLink(emotion, url) {
+  flash("image-msg", "Downloading…");
+  try {
+    const image = await sendJson("/api/images/from-url", "POST", { url, emotion });
+    flash("image-msg", `Added ${image.original_name}.`);
+  } catch (err) {
+    flash("image-msg", err.message, true);
+  }
+  await loadImages();
 }
 
 function thumbnail(img) {
@@ -215,11 +346,13 @@ function thumbnail(img) {
   );
   tier.value = img.tier;
   tier.addEventListener("change", () => updateImage(img.id, { tier: tier.value }));
+  tier.hidden = img.emotion === "trigger"; // tiers only apply to emotion images
 
   return el(
     "figure",
     { className: `thumb${isDefault ? " default" : ""}` },
     el("img", { src: img.url, alt: img.original_name, title: img.original_name, loading: "lazy" }),
+    ...(img.format === "GIF" ? [el("span", { className: "badge", textContent: "GIF" })] : []),
     tier,
     el("div", { className: "thumb-actions" }, star, remove),
   );
@@ -630,7 +763,11 @@ async function importSetup() {
 function renderState(msg) {
   $("emotion").textContent = msg.emotion;
   $("confidence").textContent = msg.confidence ? `${Math.round(msg.confidence * 100)}%` : "";
-  $("reason").textContent = msg.reason === "scores" ? `${msg.tier}` : msg.reason;
+  $("reason").textContent = msg.trigger
+    ? `word trigger “${msg.trigger}”`
+    : msg.reason === "scores"
+      ? `${msg.tier}`
+      : msg.reason;
   const img = $("preview-img");
   img.hidden = !msg.image;
   $("preview-empty").hidden = Boolean(msg.image);
@@ -727,7 +864,12 @@ async function init() {
   $("import-btn").addEventListener("click", () => $("import-file").click());
   $("import-file").addEventListener("change", importSetup);
 
-  ui.emotions = (await api("/api/emotions")).emotions;
+  $("trigger-add").addEventListener("click", addTrigger);
+  $("trigger-phrases").addEventListener("keydown", (e) => e.key === "Enter" && addTrigger());
+
+  const groups = await api("/api/emotions");
+  ui.emotions = groups.emotions;
+  ui.imageGroups = groups.image_groups ?? groups.emotions;
   await Promise.all([loadImages(), loadDevices(), loadSettings()]);
 
   connect("/ws?debug=1", {

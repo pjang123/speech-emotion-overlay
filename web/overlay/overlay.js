@@ -44,11 +44,16 @@ async function show(src, fadeMs, transition) {
   front = 1 - front;
 }
 
+// `play` goes up whenever an image (re)starts showing. Putting it in the URL makes
+// the browser treat it as a fresh image, so animated GIFs start from their first
+// frame instead of resuming wherever their loop happened to be.
+const playable = (msg) => (msg.image ? `${msg.image}?play=${msg.play ?? 0}` : null);
+
 // The overlay connects without ?debug=1, so it never receives transcripts.
 connect("/ws", {
   onMessage(msg) {
     if (msg.type !== "state") return;
-    label.textContent = msg.emotion;
-    show(msg.image, msg.fade_ms ?? 300, msg.transition ?? "fade");
+    label.textContent = msg.trigger ? `“${msg.trigger}”` : msg.emotion;
+    show(playable(msg), msg.fade_ms ?? 300, msg.transition ?? "fade");
   },
 });

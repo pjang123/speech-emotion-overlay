@@ -43,7 +43,7 @@ def test_export_then_read_roundtrip(store: ImageStore) -> None:
     config = AppConfig()
     config.display.transition = "bounce"
 
-    bundle = read_setup(export_setup(store, config), **LIMITS)
+    bundle = read_setup(export_setup(store, config, []), **LIMITS)
     assert [(i.emotion, i.tier, i.original_name) for i in bundle.images] == [
         ("joy", "strong", "happy.png"),
         ("anger", "any", "mad.gif"),
@@ -54,7 +54,7 @@ def test_export_then_read_roundtrip(store: ImageStore) -> None:
 
 
 def test_export_contains_no_locked_settings(store: ImageStore) -> None:
-    with zipfile.ZipFile(io.BytesIO(export_setup(store, AppConfig()))) as zf:
+    with zipfile.ZipFile(io.BytesIO(export_setup(store, AppConfig(), []))) as zf:
         settings = yaml.safe_load(zf.read("settings.yaml"))
     assert not {"server", "debug", "asr", "uploads"} & set(settings)
 

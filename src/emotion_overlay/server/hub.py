@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import threading
+from collections.abc import Callable
 from typing import Any
 
 Message = dict[str, Any]
@@ -32,6 +33,14 @@ class Hub:
             return
         with contextlib.suppress(RuntimeError):  # loop shutting down
             loop.call_soon_threadsafe(self._fanout, message)
+
+    def call_later(self, delay_s: float, callback: Callable[[], None]) -> None:
+        """Thread-safe: run `callback` on the event loop after `delay_s` seconds."""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        with contextlib.suppress(RuntimeError):
+            loop.call_soon_threadsafe(loop.call_later, delay_s, callback)
 
     def latest(self, message_type: str) -> Message | None:
         with self._lock:

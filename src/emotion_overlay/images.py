@@ -21,7 +21,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from emotion_overlay.emotions import EMOTIONS, NEUTRAL
+from emotion_overlay.emotions import IMAGE_GROUPS, NEUTRAL
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def clean_display_name(name: str | None) -> str:
 
 
 def _check_labels(emotion: str, tier: str) -> None:
-    if emotion not in EMOTIONS:
+    if emotion not in IMAGE_GROUPS:
         raise ImageValidationError(f"unknown emotion '{emotion}'")
     if tier not in TIERS:
         raise ImageValidationError(f"unknown tier '{tier}'")
@@ -194,9 +194,10 @@ class ImageStore:
             self._default_id = image_id
             self._save()
 
-    def replace_all(self, images: list[NewImage], default_index: int | None) -> None:
+    def replace_all(self, images: list[NewImage], default_index: int | None) -> list[ImageRecord]:
         """Swap in a whole new image set. Every image is validated and written before
-        anything existing is touched, so a bad import leaves the current setup intact."""
+        anything existing is touched, so a bad import leaves the current setup intact.
+        Returns the new records in the same order as `images`."""
         created: list[ImageRecord] = []
         try:
             for image in images:
@@ -212,6 +213,7 @@ class ImageStore:
             self._save()
         for record in old:
             self.path(record).unlink(missing_ok=True)
+        return created
 
     def pool(self, emotion: str, fallbacks: dict[str, str], tier: str) -> list[ImageRecord]:
         """Images eligible for an emotion: its own, its fallback's, the default, then neutral."""
@@ -262,7 +264,7 @@ class ImageStore:
                 continue
             valid = (
                 _ID_RE.match(record.id)
-                and record.emotion in EMOTIONS
+                and record.emotion in IMAGE_GROUPS
                 and record.tier in TIERS
                 and record.format in FORMATS
                 and self.path(record).is_file()

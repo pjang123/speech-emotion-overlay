@@ -7,4 +7,8 @@ audio model) must map their labels onto this set explicitly.
 EMOTIONS: tuple[str, ...] = ("anger", "disgust", "fear", "joy", "neutral", "sadness", "surprise")
 NEUTRAL = "neutral"
 
+# Image groups: one per emotion, plus images that only word triggers use.
+TRIGGER_GROUP = "trigger"
+IMAGE_GROUPS: tuple[str, ...] = (*EMOTIONS, TRIGGER_GROUP)
+
 Scores = dict[str, float]

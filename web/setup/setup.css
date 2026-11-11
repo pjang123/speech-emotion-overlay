@@ -408,6 +408,100 @@ code {
   justify-content: space-between;
 }
 
+.head-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.emotion.trigger-group {
+  border-style: dashed;
+}
+
+.thumb {
+  position: relative;
+}
+
+.badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgb(0 0 0 / 65%);
+}
+
+/* word triggers */
+.trigger-form {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .trigger-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.trigger-form input[type="text"],
+.trigger-form select,
+.trigger-row input,
+label.inline input {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+}
+
+label.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+label.inline input {
+  width: 70px;
+}
+
+.triggers {
+  display: grid;
+  gap: 6px;
+}
+
+.trigger-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.trigger-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.trigger-phrases {
+  overflow-wrap: anywhere;
+}
+
+.trigger-row button.secondary {
+  padding: 3px 10px;
+  font-size: 13px;
+}
+
 select.tier {
   width: 100%;
   margin-top: 4px;

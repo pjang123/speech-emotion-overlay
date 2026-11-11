@@ -398,3 +398,112 @@ def test_failed_import_changes_nothing(client: TestClient) -> None:
 def test_cross_origin_import_is_blocked(client: TestClient) -> None:
     files = {"file": ("setup.zip", b"x", "application/zip")}
     assert client.post("/api/import", files=files, headers=EVIL_ORIGIN).status_code == 403
+
+
+# --- word triggers & links ----------------------------------------------------------
+
+
+def upload_trigger_image(client: TestClient) -> dict:
+    files = {"file": ("gg.gif", make_image("GIF"), "image/gif")}
+    res = client.post("/api/images", data={"emotion": "trigger"}, files=files)
+    assert res.status_code == 201
+    return res.json()
+
+
+def test_trigger_crud(client: TestClient) -> None:
+    image = upload_trigger_image(client)
+    body = {"phrases": "gg, good game", "image_id": image["id"], "duration_s": 2}
+    res = client.post("/api/triggers", json=body)
+    assert res.status_code == 201
+    trigger = res.json()
+    assert trigger["phrases"] == ["gg", "good game"]
+    assert client.get("/api/triggers").json()["triggers"] == [trigger]
+    updated = client.put(f"/api/triggers/{trigger['id']}", json={"duration_s": 5}).json()
+    assert updated["duration_s"] == 5
+    bad_image = {"phrases": "x", "image_id": "f" * 32}
+    assert client.post("/api/triggers", json=bad_image).status_code == 400
+    empty = {"phrases": "", "image_id": image["id"]}
+    assert client.post("/api/triggers", json=empty).status_code == 400
+    assert client.post("/api/triggers", json=body, headers=EVIL_ORIGIN).status_code == 403
+    assert client.delete(f"/api/triggers/{trigger['id']}").status_code == 204
+    assert client.get("/api/triggers").json()["triggers"] == []
+
+
+def test_spoken_trigger_shows_image_then_reverts(
+    client: TestClient, engine_holder: dict[str, FakeEngine]
+) -> None:
+    image = upload_trigger_image(client)
+    body = {"phrases": "gg", "image_id": image["id"], "duration_s": 0.5}
+    client.post("/api/triggers", json=body)
+    with client.websocket_connect(f"{WS}/ws") as ws:
+        ws.receive_json()  # snapshot
+        engine_holder["engine"].events.on_words("GG everyone!")
+        shown = ws.receive_json()
+        assert (shown["image"], shown["trigger"]) == (image["url"], "gg")
+        ended = ws.receive_json()  # arrives after 0.5 s
+        assert ended["trigger"] is None and ended["image"] != image["url"]
+
+
+def test_unmatched_words_do_nothing(
+    client: TestClient, engine_holder: dict[str, FakeEngine]
+) -> None:
+    image = upload_trigger_image(client)
+    client.post("/api/triggers", json={"phrases": "gg", "image_id": image["id"]})
+    engine_holder["engine"].events.on_words("I like eggs")
+    assert client.get("/api/status").json()["state"]["trigger"] is None
+
+
+def test_trigger_test_button(client: TestClient) -> None:
+    image = upload_trigger_image(client)
+    t = client.post("/api/triggers", json={"phrases": "pog", "image_id": image["id"]}).json()
+    assert client.post(f"/api/triggers/{t['id']}/test").status_code == 200
+    assert client.get("/api/status").json()["state"]["trigger"] == "pog"
+    assert client.post("/api/triggers/nope/test").status_code == 404
+
+
+def test_deleting_image_removes_its_triggers(client: TestClient) -> None:
+    image = upload_trigger_image(client)
+    client.post("/api/triggers", json={"phrases": "gg", "image_id": image["id"]})
+    client.delete(f"/api/images/{image['id']}")
+    assert client.get("/api/triggers").json()["triggers"] == []
+
+
+def test_triggers_survive_export_import(config: AppConfig, tmp_path: Path) -> None:
+    with TestClient(create_app(config, device_lister=lambda: []), base_url=BASE) as client:
+        image = upload_trigger_image(client)
+        client.post("/api/triggers", json={"phrases": "gg", "image_id": image["id"]})
+        exported = client.get("/api/export").content
+    target = AppConfig(data_dir=tmp_path / "other")
+    with TestClient(create_app(target, device_lister=lambda: []), base_url=BASE) as client:
+        files = {"file": ("s.zip", exported, "application/zip")}
+        assert client.post("/api/import", files=files).status_code == 200
+        (trigger,) = client.get("/api/triggers").json()["triggers"]
+        (imported_image,) = client.get("/api/images").json()["images"]
+        assert trigger["image_id"] == imported_image["id"] != image["id"]  # remapped
+
+
+def test_image_from_link(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import emotion_overlay.server.app as app_module
+    from emotion_overlay.fetch import FetchError
+
+    calls: list[str] = []
+
+    def fake_fetch(url: str, max_bytes: int) -> tuple[bytes, str]:
+        calls.append(url)
+        if "bad" in url:
+            raise FetchError("links to this computer or a local network are not allowed")
+        if "html" in url:
+            return b"<html>", "page"
+        return make_image("GIF"), "dance.gif"
+
+    monkeypatch.setattr(app_module, "fetch_image", fake_fetch)
+    ok = {"url": "https://media.example/dance.gif", "emotion": "joy"}
+    res = client.post("/api/images/from-url", json=ok)
+    assert res.status_code == 201 and res.json()["format"] == "GIF"
+    assert res.json()["original_name"] == "dance.gif"
+    bad = client.post("/api/images/from-url", json={"url": "http://bad/", "emotion": "joy"})
+    assert bad.status_code == 400 and "local network" in bad.json()["detail"]
+    page = client.post("/api/images/from-url", json={"url": "https://x/html", "emotion": "joy"})
+    assert page.status_code == 400  # downloaded, but not a valid image
+    blocked = client.post("/api/images/from-url", json=ok, headers=EVIL_ORIGIN)
+    assert blocked.status_code == 403 and len(calls) == 3  # never fetched

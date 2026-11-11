@@ -7,6 +7,7 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 - Phase 2 (stability rules, rotation, tiers, transitions, live settings, zip backup) built and used by the user. Added on request: Stop/Start listening, settings reset.
 - Phase 3 (voice emotion model superb/hubert-base-superb-er, late fusion, label_map, calibration) built. User's own calibration: words 79%, voice 36%, combined 79% before/after.
 - Added on request: personalised calibration (`personalize.py`) that profiles the speaker from the 14 lines and recommends settings with reasons; user ticks which to apply (`POST /api/calibration/save {"apply": [paths]}`).
+- Added on request: word triggers (`triggers.py`, display override + `hub.call_later` to end it) and GIFs from links (`fetch.py`, SSRF-guarded; follows Tenor/Giphy og:image once with Accept: image/* only). Image group "trigger" holds trigger-only images.
 - Phase 4 (eval tooling, RAVDESS results, README) done. Pending from the user: own recordings (`eval record` + `eval run mine`) and a demo GIF for the README.
 - Key results (RAVDESS, see eval/results/ravdess/report.md): voice model answers "ang" for 79% of clips (domain shift; level normalisation and resampling ruled out); CV-best voice weight 0.6 there, but default stays 0.25 because real speech carries emotion in words. Latency median 712 ms / p95 868 ms (faster-whisper, CPU).
 - User decision: the image should change freely with every sentence. Anti-flicker rules exist but default OFF; don't turn them on by default.
@@ -31,6 +32,8 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 - Voice model labels never leak past `fusion.map_voice_scores`; everything downstream uses canonical EMOTIONS. Each emotion appears once in `label_map` (calibration needs the inverse).
 - Don't evaluate on RAVDESS with a model trained on it (why ehcalabres/wav2vec2-lg-xlsr was rejected).
 - Pipeline tests must set `_voice_state = "failed"` (or a fake `_voice`) or they start loading the real voice model.
+- Outbound HTTP only via `fetch.fetch_image` (public-address check per hop). Tests that need a local HTTP server pass `check_host=allow_all`.
+- Overlay restarts GIFs via the `play` counter in state messages (`?play=N` on the image URL); keep bumping it whenever a new image starts showing.
 - FastAPI route order matters: literal paths (`/api/images/default`) before `{image_id}` routes.
 - Server binds `127.0.0.1`. Security middleware enforces Host + Origin checks. Keep it when adding routes/WebSockets.
 - Never write audio or transcripts to disk unless a `debug.*` flag is set. Transcripts are logged at DEBUG level only.

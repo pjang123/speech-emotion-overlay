@@ -19,7 +19,8 @@ from emotion_overlay.audio.capture import InputDevice, list_input_devices
 from emotion_overlay.backup import BackupError, export_setup, read_setup
 from emotion_overlay.calibration import Calibration, CalibrationError, CalibrationStore, SpeechStats
 from emotion_overlay.config import AppConfig, save_config
-from emotion_overlay.emotions import EMOTIONS, NEUTRAL, Scores
+from emotion_overlay.emotions import EMOTIONS, IMAGE_GROUPS, NEUTRAL, Scores
+from emotion_overlay.fetch import FetchError, fetch_image
 from emotion_overlay.images import FORMATS, TIERS, ImageStore, ImageValidationError
 from emotion_overlay.pipeline import PipelineEvents
 from emotion_overlay.server.calibration import CalibrationController
@@ -35,6 +36,8 @@ from emotion_overlay.settings import (
     validate_settings,
 )
 from emotion_overlay.state_machine import EmotionState
+from emotion_overlay.triggers import Trigger, TriggerError, TriggerStore
+from emotion_overlay.triggers import match as match_trigger
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +77,24 @@ class ImageUpdateRequest(BaseModel):
     tier: str | None = None
 
 
+class ImageFromUrlRequest(BaseModel):
+    url: str
+    emotion: str
+    tier: str = "any"
+
+
+class TriggerRequest(BaseModel):
+    phrases: str | list[str]
+    image_id: str
+    duration_s: float = 3.0
+
+
+class TriggerUpdateRequest(BaseModel):
+    phrases: str | list[str] | None = None
+    image_id: str | None = None
+    duration_s: float | None = None
+
+
 def create_app(
     config: AppConfig,
     *,
@@ -86,15 +107,39 @@ def create_app(
     display = DisplayState(store, config.display)
     hub.publish(display.message())
 
+    triggers = TriggerStore(config.data_dir)
+    for stale in [t for t in triggers.all() if store.get(t.image_id) is None]:
+        triggers.remove(stale.id)  # its image was removed while the app wasn't running
+
     def on_state(state: EmotionState, new_utterance: bool) -> None:
         hub.publish(display.apply(state, new_utterance))
+
+    def fire_trigger(trigger: Trigger, phrase: str) -> bool:
+        image = store.get(trigger.image_id)
+        if image is None:
+            return False
+        message, token = display.trigger(image, phrase)
+        hub.publish(message)
+
+        def end() -> None:
+            ended = display.end_trigger(token)
+            if ended:
+                hub.publish(ended)
+
+        hub.call_later(trigger.duration_s, end)
+        return True
+
+    def on_words(text: str) -> None:
+        found = match_trigger(triggers.all(), text)
+        if found:
+            fire_trigger(*found)
 
     def persist() -> None:
         if config_path:
             save_config(config, config_path)
 
     engine = (
-        engine_factory(PipelineEvents(on_state=on_state, on_message=hub.publish))
+        engine_factory(PipelineEvents(on_state=on_state, on_message=hub.publish, on_words=on_words))
         if engine_factory
         else None
     )
@@ -150,7 +195,7 @@ def create_app(
 
     @app.get("/api/emotions")
     def emotions() -> dict[str, Any]:
-        return {"emotions": list(EMOTIONS), "neutral": NEUTRAL}
+        return {"emotions": list(EMOTIONS), "image_groups": list(IMAGE_GROUPS), "neutral": NEUTRAL}
 
     @app.get("/api/status")
     def status() -> dict[str, Any]:
@@ -236,10 +281,24 @@ def create_app(
         hub.publish(display.refresh())
         return record.to_api()
 
+    @app.post("/api/images/from-url", status_code=201)
+    def image_from_url(body: ImageFromUrlRequest) -> dict[str, Any]:
+        # Sync route: runs in the threadpool, so the download doesn't block the event loop.
+        try:
+            data, name = fetch_image(body.url, config.uploads.max_bytes)
+            record = store.add(data, body.emotion, name, body.tier)
+        except FetchError as exc:
+            raise HTTPException(400, f"Couldn't add that link: {exc}") from exc
+        except ImageValidationError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        hub.publish(display.refresh())
+        return record.to_api()
+
     @app.delete("/api/images/{image_id}", status_code=204)
     def delete_image(image_id: str) -> Response:
         if not store.remove(image_id):
             raise HTTPException(404, "Image not found")
+        triggers.remove_for_image(image_id)
         hub.publish(display.refresh())
         return Response(status_code=204)
 
@@ -275,6 +334,51 @@ def create_app(
             media_type=record.content_type,
             headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
+
+    # --- word triggers ----------------------------------------------------
+
+    def _trigger_image(image_id: str) -> None:
+        if store.get(image_id) is None:
+            raise HTTPException(400, "Pick an image that exists")
+
+    @app.get("/api/triggers")
+    def list_triggers() -> dict[str, Any]:
+        return {"triggers": [t.to_api() for t in triggers.all()]}
+
+    @app.post("/api/triggers", status_code=201)
+    def add_trigger(body: TriggerRequest) -> dict[str, Any]:
+        _trigger_image(body.image_id)
+        try:
+            return triggers.add(body.phrases, body.image_id, body.duration_s).to_api()
+        except TriggerError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.put("/api/triggers/{trigger_id}")
+    def update_trigger(trigger_id: str, body: TriggerUpdateRequest) -> dict[str, Any]:
+        if body.image_id is not None:
+            _trigger_image(body.image_id)
+        try:
+            return triggers.update(
+                trigger_id, body.phrases, body.image_id, body.duration_s
+            ).to_api()
+        except KeyError as exc:
+            raise HTTPException(404, "Trigger not found") from exc
+        except TriggerError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.delete("/api/triggers/{trigger_id}", status_code=204)
+    def delete_trigger(trigger_id: str) -> Response:
+        if not triggers.remove(trigger_id):
+            raise HTTPException(404, "Trigger not found")
+        return Response(status_code=204)
+
+    @app.post("/api/triggers/{trigger_id}/test")
+    def test_trigger(trigger_id: str) -> dict[str, Any]:
+        """Fire a trigger without saying it, e.g. to check it in OBS."""
+        trigger = triggers.get(trigger_id)
+        if trigger is None or not fire_trigger(trigger, trigger.phrases[0]):
+            raise HTTPException(404, "Trigger or its image not found")
+        return {"fired": trigger.id}
 
     # --- calibration ------------------------------------------------------
 
@@ -315,7 +419,7 @@ def create_app(
     @app.get("/api/export")
     def export() -> Response:
         return Response(
-            export_setup(store, config),
+            export_setup(store, config, triggers.all()),
             media_type="application/zip",
             headers={"Content-Disposition": 'attachment; filename="emotion-overlay-setup.zip"'},
         )
@@ -330,13 +434,23 @@ def create_app(
         def restore() -> int:
             bundle = read_setup(data, config.uploads.max_bytes, config.uploads.max_pixels, limit)
             validated = validate_settings(config, bundle.settings, strict=False)
-            store.replace_all(bundle.images, bundle.default_index)  # validates before replacing
+            # Triggers refer to images by their ids inside the zip; check them before
+            # anything changes, then point them at the ids the images get here.
+            zip_ids = {i for i in bundle.image_ids if i}
+            imported = TriggerStore.validate(bundle.triggers, zip_ids)
+            created = store.replace_all(bundle.images, bundle.default_index)
+            new_id = {
+                old: rec.id for old, rec in zip(bundle.image_ids, created, strict=True) if old
+            }
+            triggers.replace_all(
+                [Trigger(t.id, t.phrases, new_id[t.image_id], t.duration_s) for t in imported]
+            )
             commit_settings(config, validated)
             return len(bundle.images)
 
         try:
             count = await asyncio.to_thread(restore)
-        except (BackupError, SettingsError, ImageValidationError) as exc:
+        except (BackupError, SettingsError, ImageValidationError, TriggerError) as exc:
             raise HTTPException(400, f"Import failed, nothing was changed: {exc}") from exc
         persist()
         hub.publish(display.refresh())

@@ -29,7 +29,7 @@ from typing import Any
 import yaml
 
 from emotion_overlay.config import AppConfig
-from emotion_overlay.emotions import EMOTIONS
+from emotion_overlay.emotions import IMAGE_GROUPS
 from emotion_overlay.images import (
     TIERS,
     ImageStore,
@@ -39,9 +39,11 @@ from emotion_overlay.images import (
     inspect_image,
 )
 from emotion_overlay.settings import editable_settings
+from emotion_overlay.triggers import Trigger
 
 SETTINGS_NAME = "settings.yaml"
 MANIFEST_NAME = "manifest.json"
+TRIGGERS_NAME = "triggers.json"
 MAX_ENTRIES = 1000
 MAX_TEXT_BYTES = 1024 * 1024
 _IMAGE_PATH_RE = re.compile(r"^images/[0-9a-f]{32}\.(png|jpg|webp|gif)$")
@@ -56,9 +58,11 @@ class SetupBundle:
     settings: dict[str, Any]
     images: list[NewImage]
     default_index: int | None
+    image_ids: list[str | None]  # each image's id in the zip, for remapping triggers
+    triggers: list[Any]  # raw, validated by TriggerStore.validate once images have new ids
 
 
-def export_setup(store: ImageStore, config: AppConfig) -> bytes:
+def export_setup(store: ImageStore, config: AppConfig, triggers: list[Trigger]) -> bytes:
     records = store.all()
     manifest = {
         "version": 1,
@@ -78,6 +82,7 @@ def export_setup(store: ImageStore, config: AppConfig) -> bytes:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(SETTINGS_NAME, yaml.safe_dump(editable_settings(config), sort_keys=False))
         zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2))
+        zf.writestr(TRIGGERS_NAME, json.dumps([t.to_api() for t in triggers], indent=2))
         for r in records:
             zf.write(store.path(r), f"images/{r.filename}")
     return buffer.getvalue()
@@ -118,7 +123,16 @@ def _read_bundle(
     if not isinstance(settings, dict):
         raise BackupError("settings.yaml has an unexpected structure")
 
+    triggers_raw = _read(zf, by_name.get(TRIGGERS_NAME), TRIGGERS_NAME, MAX_TEXT_BYTES)
+    try:
+        triggers = json.loads(triggers_raw) if triggers_raw else []
+    except ValueError as exc:
+        raise BackupError("triggers.json is not valid JSON") from exc
+    if not isinstance(triggers, list):
+        raise BackupError("triggers.json has an unexpected structure")
+
     images: list[NewImage] = []
+    image_ids: list[str | None] = []
     default_index = None
     total = 0
     for entry in manifest["images"][:MAX_ENTRIES]:
@@ -128,7 +142,7 @@ def _read_bundle(
         if not isinstance(path, str) or not _IMAGE_PATH_RE.match(path) or path not in by_name:
             raise BackupError(f"manifest lists a missing or invalid file: {path!r}")
         emotion, tier = entry.get("emotion"), entry.get("tier", "any")
-        if emotion not in EMOTIONS or tier not in TIERS:
+        if emotion not in IMAGE_GROUPS or tier not in TIERS:
             raise BackupError(f"{path}: unknown emotion or tier")
         blob = _read(zf, by_name[path], path, max_image_bytes)
         assert blob is not None  # noqa: S101 - entry exists, checked above
@@ -147,7 +161,8 @@ def _read_bundle(
                 blob, emotion, clean_display_name(name if isinstance(name, str) else None), tier
             )
         )
-    return SetupBundle(settings, images, default_index)
+        image_ids.append(entry["id"] if isinstance(entry.get("id"), str) else None)
+    return SetupBundle(settings, images, default_index, image_ids, triggers)
 
 
 def _read(zf: zipfile.ZipFile, info: zipfile.ZipInfo | None, name: str, limit: int) -> bytes | None:

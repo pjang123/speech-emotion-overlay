@@ -10,7 +10,8 @@ Everything runs locally. Audio never leaves your machine.
 
 - **Words and tone of voice:** a text model reads what you say, and a second model listens to how you say it. Their scores are combined with a weight you control.
 - **Calibration that adapts to you:** read 14 short lines. The app learns how your voice and mic sound, profiles how you speak (pauses, volume vs. background, expressiveness), tests whether tone of voice helps for you, and recommends settings tuned to you, each with its reason. You choose which to apply.
-- **Your images:** several per emotion, chosen at random or in a cycle, with optional **Mild** and **Strong** versions picked by how confident the detection is. Animated GIFs work.
+- **Your images and GIFs:** several per emotion, chosen at random or in a cycle, with optional **Mild** and **Strong** versions picked by how confident the detection is. Add files, paste a link (direct, Tenor or Giphy), or drag a GIF in from another browser tab. GIFs restart from their first frame every time they appear.
+- **Word triggers:** say "gg" or "let's go" and a chosen image or GIF shows for a few seconds, then the emotion image comes back. Matching is whole-word and ignores case; each trigger can list alternative spellings and has a Test button for checking it in OBS.
 - **Transitions:** cross-fade, cut, or bounce.
 - **Live settings:** every display and detection setting can be changed on the setup page while you're streaming. Changes apply immediately and are saved.
 - **Responsive by default:** the image follows every sentence. Optional anti-flicker controls (smoothing, a hold-off before switching, minimum time on screen) are available if you want a calmer overlay.
@@ -151,7 +152,7 @@ To test with **your own voice**, run `uv run python -m emotion_overlay.eval reco
 
 - **Audio stays in memory.** Utterances are processed and discarded. Nothing is written to disk unless you turn on `debug.save_audio` or `debug.save_transcripts`.
 - **Transcripts aren't logged** at the default log level. Only timings and the detected emotion are.
-- **No network after first run.** Models load from the local cache first, and the Hub is contacted only if a model is missing. Telemetry and transformers' background "safetensors conversion" lookups are disabled. To check, run with `--log-level DEBUG` and look for HTTP requests (there are none).
+- **No network after first run**, except when you add an image from a link (then only that link is fetched). Models load from the local cache first, and the Hub is contacted only if a model is missing. Telemetry and transformers' background "safetensors conversion" lookups are disabled. To check, run with `--log-level DEBUG` and look for HTTP requests (there are none).
 - **The overlay never receives transcripts.** Only the setup page subscribes to debug data.
 - **Calibration keeps only numbers.** `data/calibration.json` holds the fitted offsets and accuracy figures, not your recordings or words. It's also left out of setup exports, because it's tuned to your voice.
 
@@ -168,6 +169,7 @@ The server binds to `127.0.0.1`, so other computers can't reach it. Web pages op
 | Path traversal via filename or ID | Files are stored under random IDs. Client filenames are display-only. IDs are regex-validated and looked up in the manifest, never used as paths |
 | XSS via filenames or transcripts | The frontend never uses `innerHTML`. A strict CSP allows `'self'` scripts only |
 | A shared setup zip that's malicious (zip slip, zip bomb, disguised files) | Nothing is extracted by its zip path. Only the manifest, the settings and `images/<hex id>.<ext>` entries are read, into memory. Entry count, per-file size and total size are capped by bytes actually read. Every image is re-validated like an upload. All of it is checked before anything is changed |
+| Server-side request forgery via "add from link" (making the app fetch `http://192.168.1.1/…`, `localhost`, or cloud metadata at `169.254.169.254`) | Only http/https, no credentials in the URL, no unusual low ports. The hostname must resolve to **public** addresses only, and this is re-checked on every redirect. No system proxy. Size is capped by bytes read, and the result goes through the same image validation as an upload. Remaining limit: a DNS answer that changes between the check and the connection |
 | A shared setup that changes risky settings | Imports only apply display and detection settings. Server address, debug recording, models and limits in the file are ignored. The settings API rejects them outright |
 
 ## Windows notes

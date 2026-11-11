@@ -177,3 +177,18 @@ def test_pause_before_models_load_is_remembered(config: AppConfig) -> None:
     pipeline.set_listening(False)  # still "loading": nothing to close yet
     assert pipeline.status()["listening"] is False
     assert recorder.states == []
+
+
+def test_words_are_sent_for_triggers_but_not_while_calibrating(
+    setup: tuple[Pipeline, FakeCapture, Recorder],
+) -> None:
+    pipeline, _, _ = setup
+    heard: list[str] = []
+    pipeline._events = PipelineEvents(
+        pipeline._events.on_state, pipeline._events.on_message, on_words=heard.append
+    )
+    pipeline._handle_utterance(utterance())
+    assert heard == ["I am so happy"]
+    pipeline.set_calibration_listener(lambda *args: None)
+    pipeline._handle_utterance(utterance())
+    assert heard == ["I am so happy"]
