@@ -42,6 +42,45 @@ class ClassifierConfig(BaseModel):
     window_seconds: float = Field(6.0, ge=0.0, le=60.0)
 
 
+# Audio model label -> the emotions it stands for. The voice model only knows four
+# coarse states; its probability is shared among the listed emotions in proportion
+# to the text model's scores (the voice says "agitated", the words say which kind).
+DEFAULT_AUDIO_LABEL_MAP: dict[str, list[str]] = {
+    "neu": ["neutral"],
+    "hap": ["joy", "surprise"],
+    "ang": ["anger", "disgust", "fear"],
+    "sad": ["sadness"],
+}
+
+
+class AudioEmotionConfig(BaseModel):
+    """Tone-of-voice emotion model, fused with the text model's scores."""
+
+    enabled: bool = True
+    model: str = "superb/hubert-base-superb-er"
+    device: Device = "cpu"
+    weight: float = Field(0.25, ge=0.0, le=1.0)  # voice share of the fused score; 0 = words only
+    label_map: dict[str, list[str]] = Field(
+        default_factory=lambda: {k: list(v) for k, v in DEFAULT_AUDIO_LABEL_MAP.items()}
+    )
+
+    @field_validator("label_map")
+    @classmethod
+    def _valid_map(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        seen: set[str] = set()
+        for label, targets in value.items():
+            if not targets:
+                raise ValueError(f"audio label '{label}' maps to no emotions")
+            for emotion in targets:
+                if emotion not in EMOTIONS:
+                    raise ValueError(f"unknown emotion '{emotion}' in label_map")
+                if emotion in seen:
+                    # Calibration needs to know which voice label each emotion belongs to.
+                    raise ValueError(f"emotion '{emotion}' is mapped from two audio labels")
+                seen.add(emotion)
+        return value
+
+
 class StateConfig(BaseModel):
     confidence_threshold: float = Field(0.5, ge=0.0, le=1.0)
     low_confidence: Literal["hold", "neutral"] = "hold"
@@ -91,6 +130,7 @@ class AppConfig(BaseModel):
     vad: VadConfig = Field(default_factory=VadConfig)
     asr: AsrConfig = Field(default_factory=AsrConfig)
     classifier: ClassifierConfig = Field(default_factory=ClassifierConfig)
+    audio_emotion: AudioEmotionConfig = Field(default_factory=AudioEmotionConfig)
     state: StateConfig = Field(default_factory=StateConfig)
     display: DisplayConfig = Field(default_factory=DisplayConfig)
     uploads: UploadConfig = Field(default_factory=UploadConfig)

@@ -25,6 +25,8 @@ class FakeEngine:
         self.device: int | None = None
         self.started = False
         self.listening = True
+        self.calibration: Any = None
+        self.listener: Any = None
 
     def start(self) -> None:
         self.started = True
@@ -37,6 +39,12 @@ class FakeEngine:
 
     def set_listening(self, listening: bool) -> None:
         self.listening = listening
+
+    def set_calibration(self, calibration: Any) -> None:
+        self.calibration = calibration
+
+    def set_calibration_listener(self, listener: Any) -> None:
+        self.listener = listener
 
     def status(self) -> dict[str, Any]:
         return {"state": "listening", "device": self.device, "listening": self.listening}
@@ -171,7 +179,8 @@ def test_overlay_websocket_never_gets_debug_messages(
         client.websocket_connect(f"{WS}/ws") as overlay,
         client.websocket_connect(f"{WS}/ws?debug=1") as dbg,
     ):
-        assert overlay.receive_json()["type"] == dbg.receive_json()["type"] == "state"  # snapshot
+        assert overlay.receive_json()["type"] == "state"  # overlay snapshot: state only
+        assert [dbg.receive_json()["type"] for _ in range(2)] == ["state", "calibration"]
         events.on_message({"type": "debug", "transcript": "secret words"})
         events.on_state(EmotionState("anger", 0.8, "scores", 2.0), True)
         assert dbg.receive_json()["type"] == "debug"
@@ -184,6 +193,72 @@ def test_cross_origin_websocket_is_rejected(client: TestClient) -> None:
         client.websocket_connect(f"{WS}/ws", headers=EVIL_ORIGIN),
     ):
         pass
+
+
+# --- calibration ------------------------------------------------------------
+
+
+def test_calibration_session_end_to_end(
+    client: TestClient, engine_holder: dict[str, FakeEngine], config: AppConfig
+) -> None:
+    engine = engine_holder["engine"]
+    started = client.post("/api/calibration/start").json()
+    assert started["active"] and started["session"]["index"] == 0
+    assert engine.listener is not None  # pipeline now feeds calibration, not the display
+
+    total = started["session"]["total"]
+    for _ in range(total):
+        wanted = client.get("/api/calibration").json()["session"]["prompt"]["emotion"]
+        engine.listener({wanted: 0.8, "neutral": 0.2}, {"ang": 0.7, "neu": 0.3})
+    done = client.get("/api/calibration").json()
+    assert not done["active"] and done["result"]["samples"] == total
+    assert engine.listener is None  # live display resumes
+
+    saved = client.post("/api/calibration/save").json()
+    assert saved["saved"]["samples"] == total
+    assert engine.calibration is not None
+    assert (config.data_dir / "calibration.json").exists()
+
+    assert client.delete("/api/calibration").json()["saved"] is None
+    assert engine.calibration is None
+
+
+def test_calibration_cancel_and_errors(
+    client: TestClient, engine_holder: dict[str, FakeEngine]
+) -> None:
+    assert client.post("/api/calibration/save").status_code == 409  # nothing finished
+    assert client.post("/api/calibration/nope").status_code == 404
+    client.post("/api/calibration/start")
+    client.post("/api/calibration/cancel")
+    assert engine_holder["engine"].listener is None
+    engine_holder["engine"].listening = False
+    res = client.post("/api/calibration/start")
+    assert res.status_code == 409 and "listening" in res.json()["detail"]
+    assert client.post("/api/calibration/start", headers=EVIL_ORIGIN).status_code == 403
+
+
+def test_calibration_finish_early_with_too_few_lines(
+    client: TestClient, engine_holder: dict[str, FakeEngine]
+) -> None:
+    client.post("/api/calibration/start")
+    engine_holder["engine"].listener({"joy": 0.9}, {})
+    res = client.post("/api/calibration/finish").json()
+    assert res["result"] is None and "at least" in res["error"]
+
+
+def test_saved_calibration_is_loaded_on_startup(config: AppConfig) -> None:
+    holder: dict[str, FakeEngine] = {}
+
+    def factory(events: PipelineEvents) -> FakeEngine:
+        holder["engine"] = FakeEngine(events)
+        return holder["engine"]
+
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    (config.data_dir / "calibration.json").write_text(
+        '{"voice_bias": {"neu": 0.4}, "final_bias": {"joy": 0.2}, "weight": 0.25, "samples": 9}'
+    )
+    create_app(config, engine_factory=factory, device_lister=lambda: [])
+    assert holder["engine"].calibration.final_bias == {"joy": 0.2}
 
 
 # --- settings ---------------------------------------------------------------

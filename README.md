@@ -4,10 +4,12 @@ Listens to your microphone, works out the emotion in what you're saying, and sho
 
 Everything runs locally. Audio never leaves your machine.
 
-> **Status:** Phase 2 (features and polish). Audio-based emotion, calibration and measured accuracy are next. See [SPEC.md](SPEC.md).
+> **Status:** Phase 3 (accuracy). Measured accuracy and latency on public datasets come next. See [SPEC.md](SPEC.md).
 
 ## Features
 
+- **Words and tone of voice:** a text model reads what you say, and a second model listens to how you say it. Their scores are combined with a weight you control.
+- **Per-user calibration:** read 14 short lines and the app learns how your voice and mic sound. It reports honestly how much that helped.
 - **Your images:** several per emotion, chosen at random or in a cycle, with optional **Mild** and **Strong** versions picked by how confident the detection is. Animated GIFs work.
 - **Transitions:** cross-fade, cut, or bounce.
 - **Live settings:** every display and detection setting can be changed on the setup page while you're streaming. Changes apply immediately and are saved.
@@ -18,16 +20,19 @@ Everything runs locally. Audio never leaves your machine.
 ## How it works
 
 ```
-mic ─▶ Silero VAD ─▶ Whisper ─▶ text emotion model ─▶ state machine ─▶ image picker ─▶ WebSocket ─▶ overlay (OBS)
-       (utterances)  (speech     (7 emotion scores    (threshold,      (rotation,                     setup page
-                      to text)    on recent text)      opt-in smoothing  tiers,
-                                                       & hysteresis,     fallbacks)
-                                                       silence→neutral)
+                ┌─▶ Whisper ─▶ text emotion model ─┐ (7 emotions)
+mic ─▶ Silero ──┤                                   ├─▶ fusion + ─▶ state ─▶ image ─▶ WebSocket ─▶ overlay (OBS)
+       VAD      └─▶ voice emotion model ───────────┘  calibration   machine   picker               setup page
+    (utterances)    (4 moods, runs in parallel)
 ```
 
 - **Voice activity detection** ([Silero VAD](https://github.com/snakers4/silero-vad)) splits audio into utterances. One ends after a 400 ms pause. Long speech is cut every 6 s so the image still updates mid-rant.
 - **Speech-to-text:** Whisper `base.en` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), or via 🤗 transformers when faster-whisper can't load (see [Windows notes](#windows-notes)).
 - **Emotion:** [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) scores the last ~6 s of transcript. The 7 labels are anger, disgust, fear, joy, neutral, sadness and surprise.
+- **Tone of voice:** [`superb/hubert-base-superb-er`](https://huggingface.co/superb/hubert-base-superb-er), Apache-2.0, trained on IEMOCAP. It runs on the same audio at the same time as Whisper, so it doesn't add a stage. I picked it over alternatives because one larger model was trained on RAVDESS (which would invalidate the Phase 4 evaluation), one is non-commercial, and one needs a heavy extra framework.
+- **Label mismatch, handled explicitly:** the voice model only knows `neu/hap/ang/sad`. A configurable `label_map` says which emotions each one stands for (e.g. `ang → anger, disgust, fear`). A voice label's probability is shared among its emotions in proportion to the text scores, so the voice says *agitated* and the words say *which kind*. When no words were heard (a laugh, a gasp), the voice alone decides.
+- **Late fusion:** `final = (1 − w) · text + w · voice`, with `w = 0.25` by default (adjustable live).
+- **Calibration** (`calibration.py`): fits two small sets of per-class log-space offsets, `softmax(log p + b)`. The first undoes a skew in the voice model for your mic, for example "everything sounds angry". The second nudges the combined result. They're L2-regularised, clipped at ±3, and left at 0 for emotions you didn't record. The reported "after" accuracy is **leave-one-out**: each line is scored by a fit that never saw it.
 - **State machine** (`state_machine.py`): pure, unit-tested logic that decides what is actually displayed. Models never drive the image directly. The rules:
 
   ```
@@ -85,6 +90,7 @@ URL options: `?fit=cover` fills the source and crops instead of letterboxing. `?
 - **Transcripts aren't logged** at the default log level. Only timings and the detected emotion are.
 - **No network after first run.** Models load from the local cache first, and the Hub is contacted only if a model is missing. Telemetry and transformers' background "safetensors conversion" lookups are disabled. To check, run with `--log-level DEBUG` and look for HTTP requests (there are none).
 - **The overlay never receives transcripts.** Only the setup page subscribes to debug data.
+- **Calibration keeps only numbers.** `data/calibration.json` holds the fitted offsets and accuracy figures, not your recordings or words. It's also left out of setup exports, because it's tuned to your voice.
 
 ## Security
 
@@ -103,7 +109,7 @@ The server binds to `127.0.0.1`, so other computers can't reach it. Web pages op
 
 ## Windows notes
 
-**Smart App Control** blocks CTranslate2's native library, which faster-whisper depends on. Instead of asking you to turn off an OS security feature, `asr.backend: auto` detects this and falls back to running Whisper through transformers/PyTorch. That backend is about 1.2 s per utterance on CPU instead of a few hundred ms. The setup page shows which backend is active.
+**Smart App Control** blocks CTranslate2's native library, which faster-whisper depends on. Instead of asking you to turn off an OS security feature, `asr.backend: auto` detects this and falls back to running Whisper through transformers/PyTorch. On the development machine, the transformers backend measured 0.4–1.2 s per utterance on CPU; the variation depends on what else is using the CPU. The setup page shows which backend is active.
 
 ## Development
 
@@ -117,6 +123,7 @@ uv run ruff format .        # format
 
 ## Known limitations
 
-- **Text only:** emotion is read from the words, not the tone. "Great, just great" said sarcastically reads as joy. An audio emotion model comes in Phase 3.
+- **The voice model is coarse:** it only knows 4 moods, it was trained on acted English speech, and it can be skewed by a particular mic. It's weighted low by default, and calibration exists to correct the skew. How much it actually helps will be measured in Phase 4.
+- **Calibration is small:** 14 lines can only nudge the models, not retrain them. It's fitted at the voice weight in use at the time, so recalibrate if you change that weight a lot.
 - **English only** for now. The language is a config value, not hard-coded, but the default emotion model is English.
 - **Microphone by index:** if you plug in or remove audio devices, re-select your mic on the setup page.

@@ -43,6 +43,7 @@ def setup(config: AppConfig) -> tuple[Pipeline, FakeCapture, Recorder]:
     capture = FakeCapture()
     pipeline._capture = capture  # type: ignore[assignment]
     pipeline._segmenter = object()  # type: ignore[assignment]  # "models loaded"
+    pipeline._voice_state = "failed"  # never load the real voice model in tests
     pipeline._transcriber = type(
         "T",
         (),
@@ -94,6 +95,57 @@ def test_pause_drops_queued_utterances(setup: tuple[Pipeline, FakeCapture, Recor
     pipeline._utt_q.put(utterance())
     pipeline.set_listening(False)
     assert pipeline._utt_q.empty()
+
+
+class FakeVoice:
+    def __init__(self, scores: dict[str, float]) -> None:
+        self._scores = scores
+
+    def scores(self, audio: np.ndarray) -> dict[str, float]:
+        return self._scores
+
+
+def last_debug(recorder: Recorder) -> dict[str, Any]:
+    return [m for m in recorder.messages if m.get("type") == "debug"][-1]
+
+
+def test_voice_scores_are_fused(setup: tuple[Pipeline, FakeCapture, Recorder]) -> None:
+    pipeline, _, recorder = setup
+    pipeline._voice = FakeVoice({"neu": 0.1, "hap": 0.9})
+    pipeline._handle_utterance(utterance())
+    debug = last_debug(recorder)
+    assert debug["voice"] == {"neu": 0.1, "hap": 0.9}
+    assert debug["timings"]["voice_ms"] is not None
+    assert recorder.states[-1].emotion == "joy"
+
+
+def test_voice_disabled_live_skips_voice(setup: tuple[Pipeline, FakeCapture, Recorder]) -> None:
+    pipeline, _, recorder = setup
+    pipeline._voice = FakeVoice({"ang": 1.0})
+    pipeline._config.audio_emotion.enabled = False
+    pipeline._handle_utterance(utterance())
+    assert last_debug(recorder)["voice"] == {}
+
+
+def test_voice_only_when_no_words(setup: tuple[Pipeline, FakeCapture, Recorder]) -> None:
+    pipeline, _, recorder = setup
+    pipeline._transcriber.transcribe = lambda audio: ""  # e.g. a laugh
+    pipeline._voice = FakeVoice({"hap": 0.9, "neu": 0.1})
+    pipeline._handle_utterance(utterance())
+    assert recorder.states[-1].emotion == "joy"
+
+
+def test_calibration_listener_takes_over(setup: tuple[Pipeline, FakeCapture, Recorder]) -> None:
+    pipeline, _, recorder = setup
+    pipeline._voice = FakeVoice({"hap": 1.0})
+    received = []
+    pipeline.set_calibration_listener(lambda text, voice: received.append((text, voice)))
+    pipeline._handle_utterance(utterance())
+    assert received == [({"joy": 0.95}, {"hap": 1.0})]
+    assert recorder.states == []  # the overlay isn't touched while calibrating
+    pipeline.set_calibration_listener(None)
+    pipeline._handle_utterance(utterance())
+    assert recorder.states[-1].emotion == "joy"
 
 
 def test_pause_before_models_load_is_remembered(config: AppConfig) -> None:

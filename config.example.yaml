@@ -27,7 +27,19 @@ classifier:
   device: cpu             # cpu | cuda | auto
   window_seconds: 6.0     # classify the transcript from the last N seconds; 0 = latest utterance only
 
-# state, display, vad and classifier.window_seconds can also be changed live on the setup page.
+audio_emotion:            # tone of voice, fused with the text model
+  enabled: true           # live-editable; first enable downloads ~380 MB
+  model: superb/hubert-base-superb-er   # restart to change
+  device: cpu
+  weight: 0.25            # live-editable; voice share of the combined score (0 = words only)
+  label_map:              # voice model label -> emotions it stands for (each emotion once)
+    neu: [neutral]
+    hap: [joy, surprise]
+    ang: [anger, disgust, fear]
+    sad: [sadness]
+
+# state, display, vad, classifier.window_seconds and audio_emotion.enabled/weight
+# can also be changed live on the setup page.
 state:
   confidence_threshold: 0.5
   low_confidence: hold    # hold = keep current image, neutral = fall back to neutral

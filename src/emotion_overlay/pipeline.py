@@ -1,9 +1,12 @@
-"""Wires mic -> VAD -> Whisper -> text classifier -> state machine on worker threads.
+"""Wires mic -> VAD -> (Whisper -> text model) + (voice model) -> fusion -> state machine.
 
 Threads:
 - PortAudio callback: resamples and enqueues raw audio (must stay cheap).
 - vad: segments audio into utterances, tracks speaking/silence, ticks the state machine.
-- asr: transcribes each utterance, classifies the rolling transcript, updates the state.
+- asr: transcribes each utterance, classifies the rolling transcript, fuses it with
+  the voice model's scores, updates the state.
+- voice (pool of 1): scores tone of voice in parallel with transcription, so it
+  adds no latency as long as it's faster than Whisper.
 
 Results leave through `PipelineEvents` callbacks, which must be thread-safe.
 Transcripts are only logged at DEBUG level so they don't end up in console logs by default.
@@ -14,6 +17,7 @@ import queue
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,14 +25,19 @@ import numpy as np
 
 from emotion_overlay.audio.capture import MicCapture
 from emotion_overlay.audio.vad import SAMPLE_RATE, Utterance, UtteranceSegmenter
+from emotion_overlay.calibration import Calibration
+from emotion_overlay.classify.fusion import score_utterance
 from emotion_overlay.classify.window import TranscriptWindow
 from emotion_overlay.config import AppConfig
 from emotion_overlay.debug_store import DebugRecorder
+from emotion_overlay.emotions import Scores
 from emotion_overlay.state_machine import EmotionState, EmotionStateMachine
 
 log = logging.getLogger(__name__)
 
 Message = dict[str, Any]
+# Receives (text scores for this utterance alone, raw voice scores) during calibration.
+CalibrationListener = Callable[[Scores, Scores], None]
 
 
 @dataclass(frozen=True)
@@ -56,6 +65,11 @@ class Pipeline:
         self._segmenter: UtteranceSegmenter | None = None
         self._transcriber: Any = None
         self._classifier: Any = None
+        self._voice: Any = None
+        self._voice_state = "off"  # off | loading | ready | failed
+        self._voice_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
+        self._calibration: Calibration | None = None
+        self._calibration_listener: CalibrationListener | None = None
         self._status: Message = {"type": "status", "state": "idle", "message": "Not started"}
         self._dropped_blocks = 0
         self._listening = True  # runtime only: every start begins listening
@@ -69,6 +83,7 @@ class Pipeline:
     def stop(self) -> None:
         self._stop.set()
         self._capture.stop()
+        self._voice_pool.shutdown(wait=False, cancel_futures=True)
 
     def set_device(self, device: int | None) -> None:
         with self._control_lock:
@@ -101,10 +116,19 @@ class Pipeline:
                 self._events.on_state(state, False)
             self._set_status("paused", "Paused: microphone is off")
 
+    def set_calibration(self, calibration: Calibration | None) -> None:
+        self._calibration = calibration
+
+    def set_calibration_listener(self, listener: CalibrationListener | None) -> None:
+        """While set, utterances are handed to the listener instead of changing the display."""
+        self._calibration_listener = listener
+        self._window.clear()  # don't mix calibration lines with live speech
+
     def status(self) -> Message:
         return {
             **self._status,
             "listening": self._listening,
+            "voice_model": self._voice_state,
             "device": self._capture.device_name or None,
             "asr": f"{self._transcriber.backend} on {self._transcriber.device}"
             if self._transcriber
@@ -134,6 +158,9 @@ class Pipeline:
             log.exception("Model loading failed")
             self._set_status("error", f"Model loading failed: {exc}")
             return
+        if cfg.audio_emotion.enabled:
+            self._set_status("loading", "Loading tone-of-voice model (first run downloads it)...")
+            self._load_voice_model()
 
         for target, name in ((self._vad_loop, "vad"), (self._asr_loop, "asr")):
             threading.Thread(target=target, name=name, daemon=True).start()
@@ -142,6 +169,30 @@ class Pipeline:
                 self._open_mic()
             else:
                 self._set_status("paused", "Paused: microphone is off")
+
+    def _load_voice_model(self) -> None:
+        """Optional model: failure is logged and the app carries on with text only."""
+        from emotion_overlay.classify.audio import AudioEmotionClassifier
+
+        self._voice_state = "loading"
+        try:
+            self._voice = AudioEmotionClassifier(self._config.audio_emotion)
+            self._voice_state = "ready"
+        except Exception:
+            log.exception("Tone-of-voice model failed to load; continuing with text only")
+            self._voice_state = "failed"
+        self._events.on_message(self.status())
+
+    def _voice_ready(self) -> bool:
+        """True if voice scoring should run now. Enabling it live loads it in the background."""
+        if not self._config.audio_emotion.enabled:
+            return False
+        if self._voice is not None:
+            return True
+        if self._voice_state == "off":
+            self._voice_state = "loading"
+            threading.Thread(target=self._load_voice_model, name="voice-load", daemon=True).start()
+        return False
 
     def _open_mic(self) -> None:
         try:
@@ -201,44 +252,87 @@ class Pipeline:
             except Exception:
                 log.exception("Failed to process utterance")
 
+    def _score_voice(self, audio: np.ndarray) -> tuple[Scores, float]:
+        t = time.perf_counter()
+        return self._voice.scores(audio), (time.perf_counter() - t) * 1000
+
     def _handle_utterance(self, utterance: Utterance) -> None:
+        cfg = self._config
         started = time.monotonic()  # same clock as utterance.ended_at
+        voice_job: Future[tuple[Scores, float]] | None = None
+        if self._voice_ready():
+            voice_job = self._voice_pool.submit(self._score_voice, utterance.audio)
+
         t_start = time.perf_counter()
         text = self._transcriber.transcribe(utterance.audio)
         t_asr = time.perf_counter()
         if not self._listening:
             return  # paused while this was being transcribed: drop it
         self._recorder.record(utterance.audio, SAMPLE_RATE, text)
-        if not text:
-            return
 
-        self._window.seconds = self._config.classifier.window_seconds  # live-editable
-        self._window.add(text, utterance.ended_at)
-        window_text = self._window.text(time.monotonic())
-        scores = self._classifier.scores(window_text)
+        listener = self._calibration_listener
+        text_scores: Scores = {}
+        window_text = ""
+        if text:
+            if listener:
+                window_text = text  # calibration scores each line on its own
+            else:
+                self._window.seconds = cfg.classifier.window_seconds  # live-editable
+                self._window.add(text, utterance.ended_at)
+                window_text = self._window.text(time.monotonic())
+            text_scores = self._classifier.scores(window_text)
         t_classify = time.perf_counter()
 
+        voice_raw: Scores = {}
+        voice_ms = None
+        if voice_job is not None:
+            try:
+                voice_raw, voice_ms = voice_job.result()
+            except Exception:
+                log.exception("Voice scoring failed for this utterance")
+        if not text_scores and not voice_raw:
+            return  # nothing usable (e.g. a cough Whisper heard no words in)
+
+        if listener:
+            listener(text_scores, voice_raw)
+            self._events.on_message(
+                {"type": "debug", "transcript": text, "calibrating": True, "scores": text_scores}
+            )
+            return
+
+        calibration = self._calibration
+        breakdown = score_utterance(
+            text_scores,
+            voice_raw,
+            cfg.audio_emotion.label_map,
+            cfg.audio_emotion.weight,
+            calibration.voice_bias if calibration else None,
+            calibration.final_bias if calibration else None,
+        )
         now = time.monotonic()
         with self._state_lock:
-            state = self._machine.on_scores(scores, now)
+            state = self._machine.on_scores(breakdown.final, now)
             smoothed = self._machine.smoothed
             self._last_emitted = state
             self._events.on_state(state, True)
 
         # The VAD only notices the end of speech after min_silence_ms of quiet.
-        detect_delay = 0.0 if utterance.forced else self._config.vad.min_silence_ms / 1000
+        detect_delay = 0.0 if utterance.forced else cfg.vad.min_silence_ms / 1000
         timings = {
             "queue_ms": round((started - utterance.ended_at) * 1000),
             "asr_ms": round((t_asr - t_start) * 1000),
             "classify_ms": round((t_classify - t_asr) * 1000),
+            "voice_ms": round(voice_ms) if voice_ms is not None else None,
             "speech_end_to_state_ms": round((now - utterance.ended_at + detect_delay) * 1000),
         }
         log.info(
-            "utterance %.1fs%s | asr %d ms | classify %d ms | speech end -> state %d ms | %s %.2f",
+            "utterance %.1fs%s | asr %d ms | text %d ms | voice %s ms | speech end -> state %d ms"
+            " | %s %.2f",
             utterance.duration_s,
             " (cut)" if utterance.forced else "",
             timings["asr_ms"],
             timings["classify_ms"],
+            timings["voice_ms"] if voice_ms is not None else "-",
             timings["speech_end_to_state_ms"],
             state.emotion,
             state.confidence,
@@ -249,8 +343,11 @@ class Pipeline:
                 "type": "debug",
                 "transcript": text,
                 "window": window_text,
-                "scores": scores,
+                "text_scores": breakdown.text,
+                "voice": breakdown.voice_raw,
+                "scores": breakdown.final,
                 "smoothed": smoothed,
+                "calibrated": calibration is not None,
                 "emotion": state.emotion,
                 "confidence": state.confidence,
                 "forced": utterance.forced,
@@ -270,13 +367,8 @@ class Pipeline:
 
     def _set_status(self, state: str, message: str) -> None:
         log.info(message)
-        self._status = {
-            "type": "status",
-            "state": state,
-            "message": message,
-            "listening": self._listening,
-        }
-        self._events.on_message(self._status)
+        self._status = {"type": "status", "state": state, "message": message}
+        self._events.on_message(self.status())
 
     @staticmethod
     def _drain(q: queue.Queue[Any]) -> None:

@@ -17,10 +17,12 @@ from starlette.websockets import WebSocketDisconnect
 
 from emotion_overlay.audio.capture import InputDevice, list_input_devices
 from emotion_overlay.backup import BackupError, export_setup, read_setup
+from emotion_overlay.calibration import Calibration, CalibrationError, CalibrationStore
 from emotion_overlay.config import AppConfig, save_config
-from emotion_overlay.emotions import EMOTIONS, NEUTRAL
+from emotion_overlay.emotions import EMOTIONS, NEUTRAL, Scores
 from emotion_overlay.images import FORMATS, TIERS, ImageStore, ImageValidationError
 from emotion_overlay.pipeline import PipelineEvents
+from emotion_overlay.server.calibration import CalibrationController
 from emotion_overlay.server.display import DisplayState
 from emotion_overlay.server.hub import Hub
 from emotion_overlay.server.security import install_security
@@ -44,6 +46,10 @@ class AudioEngine(Protocol):
     def stop(self) -> None: ...
     def set_device(self, device: int | None) -> None: ...
     def set_listening(self, listening: bool) -> None: ...
+    def set_calibration(self, calibration: Calibration | None) -> None: ...
+    def set_calibration_listener(
+        self, listener: Callable[[Scores, Scores], None] | None
+    ) -> None: ...
     def status(self) -> dict[str, Any]: ...
 
 
@@ -90,6 +96,10 @@ def create_app(
     )
     if engine is None:
         hub.publish({"type": "status", "state": "disabled", "message": "Audio disabled"})
+    calibration = CalibrationController(
+        config, CalibrationStore(config.data_dir), engine, hub.publish
+    )
+    hub.publish(calibration.message())
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -251,6 +261,33 @@ def create_app(
             media_type=record.content_type,
             headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
+
+    # --- calibration ------------------------------------------------------
+
+    @app.get("/api/calibration")
+    def get_calibration() -> dict[str, Any]:
+        return calibration.message()
+
+    @app.post("/api/calibration/{action}")
+    def calibration_action(action: str) -> dict[str, Any]:
+        actions = {
+            "start": calibration.start,
+            "skip": calibration.skip,
+            "back": calibration.back,
+            "finish": calibration.finish_early,
+            "cancel": calibration.cancel,
+            "save": calibration.save,
+        }
+        if action not in actions:
+            raise HTTPException(404, "Unknown calibration action")
+        try:
+            return actions[action]()
+        except CalibrationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.delete("/api/calibration")
+    def delete_calibration() -> dict[str, Any]:
+        return calibration.clear()
 
     # --- backup -----------------------------------------------------------
 

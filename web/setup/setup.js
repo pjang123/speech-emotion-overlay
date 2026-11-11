@@ -12,6 +12,8 @@ const ui = {
   maxBytes: 10 * 1024 * 1024,
   settings: null,
   listening: true,
+  calibration: null,
+  voiceModel: null,
 };
 
 const TIER_LABELS = { any: "Any", mild: "Mild", strong: "Strong" };
@@ -49,6 +51,16 @@ const SETTINGS = [
         help: "Non-stop talking is judged in chunks this long." },
       { path: "vad.threshold", label: "Voice detection threshold", type: "number", min: 0.05, max: 0.95, step: 0.05,
         help: "Higher ignores more background noise." },
+    ],
+  },
+  {
+    title: "Tone of voice",
+    note: "A second model listens to how you sound, not just your words, e.g. to catch sarcasm or a laugh.",
+    fields: [
+      { path: "audio_emotion.enabled", label: "Use tone of voice", type: "checkbox",
+        help: "The first time you turn this on it downloads a ~380 MB model." },
+      { path: "audio_emotion.weight", label: "Voice weight", type: "number", min: 0, max: 1, step: 0.05,
+        help: "How much the voice counts compared with the words. 0 = words only, 1 = voice only." },
     ],
   },
   {
@@ -379,6 +391,131 @@ async function resetSettings() {
   renderSettings();
 }
 
+// --- calibration --------------------------------------------------------------
+
+const SAY_IT = {
+  joy: "happy",
+  anger: "angry",
+  sadness: "sad",
+  surprise: "surprised",
+  fear: "scared",
+  disgust: "disgusted",
+  neutral: "plain and calm",
+};
+
+const percent = (value) => (value === null || value === undefined ? "n/a" : `${Math.round(value * 100)}%`);
+
+function button(text, onClick, secondary = true) {
+  const node = el("button", { className: secondary ? "secondary" : "", textContent: text });
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+async function calibrationAction(action, method = "POST") {
+  try {
+    const path = action ? `/api/calibration/${action}` : "/api/calibration";
+    renderCalibration(await api(path, { method }));
+    flash("calibration-msg", "");
+  } catch (err) {
+    flash("calibration-msg", err.message, true);
+  }
+}
+
+function accuracyTable(accuracy) {
+  const rows = [
+    ["Words only", accuracy.text],
+    ["Voice only (4 broad moods)", accuracy.voice],
+    ["Combined, before calibration", accuracy.before],
+    ["Combined, after calibration*", accuracy.after],
+  ];
+  return el(
+    "table",
+    { className: "accuracy" },
+    ...rows.map(([label, value]) =>
+      el("tr", {}, el("td", { textContent: label }), el("td", { className: "mono", textContent: percent(value) })),
+    ),
+  );
+}
+
+function renderCalibration(msg) {
+  ui.calibration = msg;
+  const box = $("calibration");
+  const voiceState = ui.voiceModel ? `Tone-of-voice model: ${ui.voiceModel}.` : "";
+
+  if (msg.active) {
+    const s = msg.session;
+    const last = s.last
+      ? `Last line: the words read as ${s.last.heard ?? "(no words heard)"}` +
+        (s.last.voice ? `, the voice as ${s.last.voice}.` : ".")
+      : "Waiting for you to speak…";
+    box.replaceChildren(
+      el(
+        "div",
+        { className: "prompt" },
+        el("p", { className: "label", textContent: `Line ${s.index + 1} of ${s.total}` }),
+        el("p", { className: "prompt-how", textContent: `Say it ${SAY_IT[s.prompt.emotion] ?? s.prompt.emotion}:` }),
+        el("p", { className: "prompt-line", textContent: `“${s.prompt.text}”` }),
+        el("p", { className: "muted small", textContent: last }),
+      ),
+      el(
+        "div",
+        { className: "row" },
+        button("Back", () => calibrationAction("back")),
+        button("Skip line", () => calibrationAction("skip")),
+        button("Finish now", () => calibrationAction("finish")),
+        button("Cancel", () => calibrationAction("cancel")),
+      ),
+    );
+    return;
+  }
+
+  if (msg.result || msg.error) {
+    const parts = [];
+    if (msg.error) parts.push(el("p", { className: "msg error", textContent: msg.error }));
+    if (msg.result) {
+      parts.push(
+        el("p", { textContent: `Recorded ${msg.result.samples} lines. How often each part picked the right emotion:` }),
+        accuracyTable(msg.result.accuracy),
+        el("p", {
+          className: "muted small",
+          textContent:
+            "* Each line is scored by a calibration fitted on the other lines only, so this isn't inflated. " +
+            "With so few lines, treat these numbers as rough.",
+        }),
+      );
+    }
+    parts.push(
+      el(
+        "div",
+        { className: "row" },
+        ...(msg.result ? [button("Save calibration", () => calibrationAction("save"), false)] : []),
+        button(msg.result ? "Discard" : "Close", () => calibrationAction("cancel")),
+        button("Start over", () => calibrationAction("start")),
+      ),
+    );
+    box.replaceChildren(...parts);
+    return;
+  }
+
+  const saved = msg.saved;
+  const summary = saved
+    ? `Calibrated ${new Date(saved.created).toLocaleString()} from ${saved.samples} lines ` +
+      `(combined accuracy ${percent(saved.accuracy.before)} → ${percent(saved.accuracy.after)}).`
+    : "Not calibrated yet. The app works without it, but calibration helps the voice model fit your mic.";
+  box.replaceChildren(
+    el("p", { textContent: summary }),
+    ...(voiceState ? [el("p", { className: "muted small", textContent: voiceState })] : []),
+    el(
+      "div",
+      { className: "row" },
+      button(saved ? "Recalibrate" : "Start calibration", () => calibrationAction("start"), false),
+      ...(saved
+        ? [button("Remove calibration", () => confirm("Remove your calibration?") && calibrationAction("", "DELETE"))]
+        : []),
+    ),
+  );
+}
+
 // --- backup -------------------------------------------------------------------
 
 async function importSetup() {
@@ -419,6 +556,11 @@ function renderStatus(msg) {
   ];
   setPill("engine", msg.message, kind);
 
+  if (msg.voice_model && msg.voice_model !== ui.voiceModel) {
+    ui.voiceModel = msg.voice_model;
+    if (ui.calibration) renderCalibration(ui.calibration);
+  }
+
   const button = $("listen-toggle");
   ui.listening = msg.listening ?? true;
   button.disabled = msg.state === "disabled" || msg.state === "error";
@@ -448,8 +590,17 @@ function renderSpeaking(speaking) {
 }
 
 function renderDebug(msg) {
-  $("transcript").textContent = msg.transcript || "—";
+  $("transcript").textContent = msg.transcript || "(no words heard)";
+  if (msg.calibrating) {
+    $("window").textContent = "Calibrating: the overlay isn't changed by these lines.";
+    return;
+  }
   $("window").textContent = msg.window || "—";
+  const voice = msg.voice ?? {};
+  const topVoice = Object.entries(voice).sort((a, b) => b[1] - a[1])[0];
+  $("voice").textContent = topVoice
+    ? `Voice: ${topVoice[0]} ${Math.round(topVoice[1] * 100)}%${msg.calibrated ? " · calibrated" : ""}`
+    : "Voice: off";
   // Smoothed scores are what the state machine decides on (equal to raw when smoothing is off).
   const shown = msg.smoothed ?? msg.scores;
   const rows = ui.emotions.map((emotion) => {
@@ -468,7 +619,8 @@ function renderDebug(msg) {
   const t = msg.timings;
   $("timings").textContent =
     `${msg.duration_s}s utterance${msg.forced ? " (cut)" : ""} · ASR ${t.asr_ms} ms · ` +
-    `classify ${t.classify_ms} ms · speech end → state ${t.speech_end_to_state_ms} ms`;
+    `text ${t.classify_ms} ms · voice ${t.voice_ms ?? "–"} ms · ` +
+    `speech end → state ${t.speech_end_to_state_ms} ms`;
 }
 
 // --- init -----------------------------------------------------------------------
@@ -499,6 +651,7 @@ async function init() {
       else if (msg.type === "status") renderStatus(msg);
       else if (msg.type === "vad") renderSpeaking(msg.speaking);
       else if (msg.type === "debug") renderDebug(msg);
+      else if (msg.type === "calibration") renderCalibration(msg);
     },
   });
 }

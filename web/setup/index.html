@@ -42,6 +42,7 @@
             <span id="reason" class="tag"></span>
           </p>
           <div id="scores" class="scores"></div>
+          <p id="voice" class="mono muted small"></p>
           <p class="label">Last transcript</p>
           <p id="transcript" class="mono">—</p>
           <p class="label">Classified window</p>
@@ -66,6 +67,13 @@
       <p class="hint">Changes apply immediately, with no restart, and are saved to <code>config.yaml</code>.</p>
       <p id="settings-msg" class="msg"></p>
       <div id="settings" class="settings"></div>
+    </section>
+
+    <section class="card">
+      <h2>Calibration</h2>
+      <p class="hint">Read 14 short lines, each in the emotion shown, so the app learns how <em>your</em> voice and mic sound. It takes about two minutes. Say each line naturally and pause after it; the next line appears by itself. Only scores are kept, never your audio or words.</p>
+      <div id="calibration"></div>
+      <p id="calibration-msg" class="msg"></p>
     </section>
 
     <section class="card">
