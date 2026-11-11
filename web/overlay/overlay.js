@@ -14,10 +14,12 @@ let wanted = null;
 
 // Two stacked <img> layers: load the new image into the hidden one, then swap
 // opacities so the old image fades out while the new one fades in.
-async function show(src, fadeMs) {
+// transition: "fade" (cross-fade), "cut" (instant) or "bounce" (cross-fade + pop).
+async function show(src, fadeMs, transition) {
   if (src === wanted) return;
   wanted = src;
-  for (const layer of layers) layer.style.transitionDuration = `${fadeMs}ms`;
+  const duration = transition === "cut" ? 0 : fadeMs;
+  for (const layer of layers) layer.style.transitionDuration = `${duration}ms`;
 
   if (!src) {
     layers[front].classList.remove("visible");
@@ -31,6 +33,12 @@ async function show(src, fadeMs) {
     // decode() can reject for some GIFs; show it anyway
   }
   if (wanted !== src) return; // a newer change arrived while loading
+  back.classList.remove("bounce");
+  if (transition === "bounce") {
+    void back.offsetWidth; // restart the animation even if this layer bounced last time
+    back.style.animationDuration = `${Math.max(fadeMs, 250)}ms`;
+    back.classList.add("bounce");
+  }
   back.classList.add("visible");
   layers[front].classList.remove("visible");
   front = 1 - front;
@@ -41,6 +49,6 @@ connect("/ws", {
   onMessage(msg) {
     if (msg.type !== "state") return;
     label.textContent = msg.emotion;
-    show(msg.image, msg.fade_ms ?? 300);
+    show(msg.image, msg.fade_ms ?? 300, msg.transition ?? "fade");
   },
 });

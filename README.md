@@ -4,20 +4,40 @@ Listens to your microphone, works out the emotion in what you're saying, and sho
 
 Everything runs locally. Audio never leaves your machine.
 
-> **Status:** Phase 1 (working pipeline). Anti-flicker smoothing, intensity tiers, audio-based emotion, calibration and measured accuracy are next. See [SPEC.md](SPEC.md).
+> **Status:** Phase 2 (features and polish). Audio-based emotion, calibration and measured accuracy are next. See [SPEC.md](SPEC.md).
+
+## Features
+
+- **Your images:** several per emotion, chosen at random or in a cycle, with optional **Mild** and **Strong** versions picked by how confident the detection is. Animated GIFs work.
+- **Transitions:** cross-fade, cut, or bounce.
+- **Live settings:** every display and detection setting can be changed on the setup page while you're streaming. Changes apply immediately and are saved.
+- **Responsive by default:** the image follows every sentence. Optional anti-flicker controls (smoothing, a hold-off before switching, minimum time on screen) are available if you want a calmer overlay.
+- **Backup:** export your whole setup (images and settings) as a zip, and import it on another PC or share it.
 
 ## How it works
 
 ```
-mic ─▶ Silero VAD ─▶ Whisper ─▶ text emotion model ─▶ state machine ─▶ WebSocket ─▶ overlay page (OBS)
-       (utterances)  (speech     (7 emotion scores    (threshold,                    setup page (debug view)
-                      to text)    on recent text)      silence → neutral)
+mic ─▶ Silero VAD ─▶ Whisper ─▶ text emotion model ─▶ state machine ─▶ image picker ─▶ WebSocket ─▶ overlay (OBS)
+       (utterances)  (speech     (7 emotion scores    (threshold,      (rotation,                     setup page
+                      to text)    on recent text)      opt-in smoothing  tiers,
+                                                       & hysteresis,     fallbacks)
+                                                       silence→neutral)
 ```
 
 - **Voice activity detection** ([Silero VAD](https://github.com/snakers4/silero-vad)) splits audio into utterances. One ends after a 400 ms pause. Long speech is cut every 6 s so the image still updates mid-rant.
 - **Speech-to-text:** Whisper `base.en` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), or via 🤗 transformers when faster-whisper can't load (see [Windows notes](#windows-notes)).
 - **Emotion:** [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) scores the last ~6 s of transcript. The 7 labels are anger, disgust, fear, joy, neutral, sadness and surprise.
-- **State machine** (`state_machine.py`): pure, unit-tested logic that decides what is actually displayed. Models never drive the image directly.
+- **State machine** (`state_machine.py`): pure, unit-tested logic that decides what is actually displayed. Models never drive the image directly. The rules:
+
+  ```
+  raw scores -> EMA smoothing -> candidate (top score)
+  switch when: candidate >= confidence threshold
+           AND (on top for N windows OR leads by a margin)
+           AND current emotion shown for >= min display time
+  silence for T seconds -> neutral
+  ```
+
+  Smoothing, N, the margin and the minimum display time all default to "off". That was a deliberate product choice: the image should react to every sentence. They're unit-tested both on and off, including a noisy-monologue test that shows they suppress single-sentence spikes.
 - **Server:** FastAPI on `127.0.0.1:8765`, which serves the pages, the REST API for images and settings, and a WebSocket event stream.
 
 ## Install
@@ -38,8 +58,9 @@ The first start downloads the models (~400 MB, one time). After that, startup is
 
 1. Open **http://127.0.0.1:8765/setup**.
 2. Pick your microphone and click **Use this mic**.
-3. Add images for each emotion. Click ★ on one to make it the default, which is shown for emotions that have no images of their own.
+3. Add images for each emotion. Click ★ on one to make it the default, which is shown for emotions that have no images of their own. Optionally set an image's tier to **Mild** or **Strong**.
 4. Talk. The **Live** panel shows what was heard, the emotion scores and timings.
+5. Adjust things in **Settings** while you talk. Changes apply immediately.
 
 ### Add to OBS
 
@@ -76,6 +97,8 @@ The server binds to `127.0.0.1`, so other computers can't reach it. Web pages op
 | Malicious upload (script, SVG, polyglot, decompression bomb) | Type is decided by parsing the content with Pillow, limited to PNG/JPEG/WebP/GIF. Size limit 10 MB, pixel limit 4096². Served with a fixed MIME type and `nosniff` |
 | Path traversal via filename or ID | Files are stored under random IDs. Client filenames are display-only. IDs are regex-validated and looked up in the manifest, never used as paths |
 | XSS via filenames or transcripts | The frontend never uses `innerHTML`. A strict CSP allows `'self'` scripts only |
+| A shared setup zip that's malicious (zip slip, zip bomb, disguised files) | Nothing is extracted by its zip path. Only the manifest, the settings and `images/<hex id>.<ext>` entries are read, into memory. Entry count, per-file size and total size are capped by bytes actually read. Every image is re-validated like an upload. All of it is checked before anything is changed |
+| A shared setup that changes risky settings | Imports only apply display and detection settings. Server address, debug recording, models and limits in the file are ignored. The settings API rejects them outright |
 
 ## Windows notes
 
@@ -91,9 +114,8 @@ uv run ruff format .        # format
 
 `uv run pytest` may be blocked by Smart App Control (it launches an unsigned `.exe`). `python -m pytest` works.
 
-## Known limitations (Phase 1)
+## Known limitations
 
-- **Flicker:** each utterance can switch the image. Smoothing, hysteresis and minimum display time come in Phase 2.
 - **Text only:** emotion is read from the words, not the tone. "Great, just great" said sarcastically reads as joy. An audio emotion model comes in Phase 3.
 - **English only** for now. The language is a config value, not hard-coded, but the default emotion model is English.
 - **Microphone by index:** if you plug in or remove audio devices, re-select your mic on the setup page.

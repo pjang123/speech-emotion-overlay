@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -7,7 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from conftest import make_image
 from emotion_overlay.audio.capture import InputDevice
-from emotion_overlay.config import AppConfig
+from emotion_overlay.config import AppConfig, load_config
 from emotion_overlay.pipeline import PipelineEvents
 from emotion_overlay.server.app import create_app
 from emotion_overlay.state_machine import EmotionState
@@ -139,7 +140,7 @@ def test_websocket_streams_state_with_image(
     with client.websocket_connect(f"{WS}/ws", headers=SAME_ORIGIN) as ws:
         first = ws.receive_json()
         assert first["type"] == "state" and first["emotion"] == "neutral"
-        engine_holder["engine"].events.on_state(EmotionState("joy", 0.9, "scores", 1.0))
+        engine_holder["engine"].events.on_state(EmotionState("joy", 0.9, "scores", 1.0), True)
         msg = ws.receive_json()
         assert (msg["emotion"], msg["image"]) == ("joy", joy["url"])
 
@@ -154,7 +155,7 @@ def test_overlay_websocket_never_gets_debug_messages(
     ):
         assert overlay.receive_json()["type"] == dbg.receive_json()["type"] == "state"  # snapshot
         events.on_message({"type": "debug", "transcript": "secret words"})
-        events.on_state(EmotionState("anger", 0.8, "scores", 2.0))
+        events.on_state(EmotionState("anger", 0.8, "scores", 2.0), True)
         assert dbg.receive_json()["type"] == "debug"
         assert overlay.receive_json()["type"] == "state"  # debug message was skipped
 
@@ -165,3 +166,91 @@ def test_cross_origin_websocket_is_rejected(client: TestClient) -> None:
         client.websocket_connect(f"{WS}/ws", headers=EVIL_ORIGIN),
     ):
         pass
+
+
+# --- settings ---------------------------------------------------------------
+
+
+def test_settings_apply_live_and_persist(config: AppConfig, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    app = create_app(config, config_path=config_path, device_lister=lambda: [])
+    with TestClient(app, base_url=BASE) as client:
+        state_section = config.state
+        res = client.put("/api/settings", json={"state": {"silence_timeout_s": 9}})
+        assert res.status_code == 200
+        assert res.json()["state"]["silence_timeout_s"] == 9
+        assert state_section.silence_timeout_s == 9  # same object the state machine holds
+        assert load_config(config_path).state.silence_timeout_s == 9
+
+
+def test_settings_change_is_broadcast_to_overlay(client: TestClient) -> None:
+    with client.websocket_connect(f"{WS}/ws") as ws:
+        ws.receive_json()
+        client.put("/api/settings", json={"display": {"transition": "bounce"}})
+        assert ws.receive_json()["transition"] == "bounce"
+
+
+def test_settings_reject_locked_and_invalid(client: TestClient) -> None:
+    assert client.put("/api/settings", json={"debug": {"save_audio": True}}).status_code == 400
+    bad = client.put("/api/settings", json={"display": {"fade_ms": -5}})
+    assert bad.status_code == 400 and "fade_ms" in bad.json()["detail"]
+    blocked = client.put("/api/settings", json={"state": {}}, headers=EVIL_ORIGIN)
+    assert blocked.status_code == 403
+
+
+# --- image edits --------------------------------------------------------------
+
+
+def test_upload_with_tier_and_update(client: TestClient) -> None:
+    files = {"file": ("x.png", make_image(), "image/png")}
+    image = client.post("/api/images", data={"emotion": "joy", "tier": "strong"}, files=files)
+    assert image.json()["tier"] == "strong"
+    image_id = image.json()["id"]
+    res = client.put(f"/api/images/{image_id}", json={"tier": "mild", "emotion": "fear"})
+    assert (res.json()["tier"], res.json()["emotion"]) == ("mild", "fear")
+    assert client.put(f"/api/images/{image_id}", json={"tier": "huge"}).status_code == 400
+    assert client.put("/api/images/" + "0" * 32, json={"tier": "mild"}).status_code == 404
+
+
+def test_default_route_is_not_shadowed_by_image_update(client: TestClient) -> None:
+    image = upload(client).json()
+    res = client.put("/api/images/default", json={"image_id": image["id"]})
+    assert res.json() == {"default_image": image["id"]}
+
+
+# --- backup -------------------------------------------------------------------
+
+
+def test_export_import_roundtrip(config: AppConfig, tmp_path: Path) -> None:
+    source = create_app(config, device_lister=lambda: [])
+    with TestClient(source, base_url=BASE) as client:
+        image = upload(client, "anger").json()
+        client.put("/api/images/default", json={"image_id": image["id"]})
+        client.put("/api/settings", json={"display": {"transition": "cut"}})
+        exported = client.get("/api/export")
+    assert exported.headers["content-type"] == "application/zip"
+
+    target_config = AppConfig(data_dir=tmp_path / "other")
+    target = create_app(target_config, device_lister=lambda: [])
+    with TestClient(target, base_url=BASE) as client:
+        upload(client, "joy")  # replaced by the import
+        files = {"file": ("setup.zip", exported.content, "application/zip")}
+        res = client.post("/api/import", files=files)
+        assert res.status_code == 200 and res.json()["images"] == 1
+        listed = client.get("/api/images").json()
+        assert [i["emotion"] for i in listed["images"]] == ["anger"]
+        assert listed["default_image"] == listed["images"][0]["id"]
+    assert target_config.display.transition == "cut"
+
+
+def test_failed_import_changes_nothing(client: TestClient) -> None:
+    existing = upload(client).json()
+    files = {"file": ("setup.zip", b"definitely not a zip", "application/zip")}
+    res = client.post("/api/import", files=files)
+    assert res.status_code == 400 and "nothing was changed" in res.json()["detail"]
+    assert [i["id"] for i in client.get("/api/images").json()["images"]] == [existing["id"]]
+
+
+def test_cross_origin_import_is_blocked(client: TestClient) -> None:
+    files = {"file": ("setup.zip", b"x", "application/zip")}
+    assert client.post("/api/import", files=files, headers=EVIL_ORIGIN).status_code == 403

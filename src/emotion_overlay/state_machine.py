@@ -1,17 +1,22 @@
 """Turns noisy emotion scores into the emotion that is actually displayed.
 
 Deliberately free of I/O and clock calls: callers pass `now` (monotonic seconds),
-so every rule is deterministic and unit-testable.
+so every rule is deterministic and unit-testable. It holds a reference to its
+config, so settings edited on the setup page apply to the next window.
 
-Phase 1 rules:
-- The top-scoring emotion is the candidate. Ties keep the current emotion, then
-  prefer neutral, then fall back to alphabetical order so results are stable.
-- A candidate below `confidence_threshold` does not switch the display; it either
-  holds the current emotion or drops to neutral (`low_confidence`).
-- With no speech and no new scores for `silence_timeout_s`, return to neutral.
+    raw scores -> smoothing (EMA) -> candidate (top score; ties keep current,
+                                     then prefer neutral, then alphabetical)
+    candidate must: reach confidence_threshold
+                    AND stay on top for persist_windows OR lead by instant_switch_margin
+                    AND current emotion shown for >= min_display_s (not applied to the
+                        resting neutral after startup/silence)
+    -> switch displayed emotion
+    an unsure window (below threshold) in "hold" mode neither advances nor cancels
+    a pending switch; in "neutral" mode it requests neutral
+    no speech and no scores for silence_timeout_s -> neutral (bypasses min_display_s)
 
-Phase 2 adds EMA smoothing, hysteresis and minimum display time here, behind the
-same `on_scores` / `on_activity` / `tick` interface.
+With the default config (smoothing 1, persist 1, min display 0) every confident
+window switches immediately; the stability rules are opt-in.
 """
 
 import math
@@ -24,7 +29,7 @@ from emotion_overlay.emotions import NEUTRAL, Scores
 @dataclass(frozen=True)
 class EmotionState:
     emotion: str
-    confidence: float
+    confidence: float  # smoothed score of the displayed emotion; drives intensity tiers
     reason: str  # startup | scores | low_confidence | silence
     since: float  # when this emotion started being displayed
 
@@ -42,14 +47,22 @@ def pick_candidate(scores: Scores, current: str) -> tuple[str, float]:
 
 class EmotionStateMachine:
     def __init__(self, config: StateConfig, now: float) -> None:
-        # Holding a reference (not a copy) lets live config edits take effect.
         self._config = config
         self._state = EmotionState(NEUTRAL, 0.0, "startup", now)
         self._last_activity = now
+        self._smoothed: Scores = {}
+        self._streak_emotion: str | None = None
+        self._streak = 0
+        # A switch that passed every rule except min_display_s; applied by tick().
+        self._waiting: tuple[str, float, str] | None = None
 
     @property
     def state(self) -> EmotionState:
         return self._state
+
+    @property
+    def smoothed(self) -> Scores:
+        return dict(self._smoothed)
 
     def on_activity(self, now: float) -> None:
         """Record that the user is speaking, which postpones the silence timeout."""
@@ -62,23 +75,80 @@ class EmotionStateMachine:
         self.on_activity(now)
         if not scores:
             return self._state
-        candidate, confidence = pick_candidate(scores, self._state.emotion)
-        if confidence < self._config.confidence_threshold:
-            if self._config.low_confidence == "neutral":
-                return self._set(NEUTRAL, confidence, "low_confidence", now)
-            return self._state
-        return self._set(candidate, confidence, "scores", now)
+        cfg = self._config
+        smoothed = self._smooth(scores)
+        current = self._state.emotion
+        current_score = smoothed.get(current, 0.0)
+        candidate, confidence = pick_candidate(smoothed, current)
+
+        if confidence < cfg.confidence_threshold:
+            if cfg.low_confidence == "neutral":
+                self._clear_pending()
+                return self._request(NEUTRAL, confidence, "low_confidence", now)
+            # "hold": an unsure window neither counts toward nor cancels a pending switch.
+            return self._set_confidence(current_score)
+
+        if candidate == current:
+            self._clear_pending()
+            return self._set_confidence(confidence)
+
+        if candidate == self._streak_emotion:
+            self._streak += 1
+        else:
+            self._streak_emotion, self._streak = candidate, 1
+        persisted = self._streak >= cfg.persist_windows
+        decisive = (
+            cfg.instant_switch_margin > 0
+            and confidence - current_score >= cfg.instant_switch_margin
+        )
+        if not (persisted or decisive):
+            self._waiting = None
+            return self._set_confidence(current_score)
+        return self._request(candidate, confidence, "scores", now)
 
     def tick(self, now: float) -> EmotionState:
         """Apply time-based rules. Call regularly, even when nothing is said."""
         idle = now - self._last_activity
         if self._state.emotion != NEUTRAL and idle >= self._config.silence_timeout_s:
-            return self._set(NEUTRAL, 0.0, "silence", now)
+            self._smoothed.clear()  # don't let the old mood leak into the next sentence
+            self._clear_pending()
+            self._state = EmotionState(NEUTRAL, 0.0, "silence", now)
+        elif self._waiting is not None:
+            self._request(*self._waiting, now)
         return self._state
 
-    def _set(self, emotion: str, confidence: float, reason: str, now: float) -> EmotionState:
-        if emotion == self._state.emotion:
-            self._state = replace(self._state, confidence=confidence)
+    # --- helpers ----------------------------------------------------------
+
+    def _smooth(self, scores: Scores) -> Scores:
+        alpha = self._config.smoothing
+        if alpha >= 1.0 or not self._smoothed:
+            self._smoothed = dict(scores)
         else:
-            self._state = EmotionState(emotion, confidence, reason, now)
+            keys = scores.keys() | self._smoothed.keys()
+            self._smoothed = {
+                e: alpha * scores.get(e, 0.0) + (1 - alpha) * self._smoothed.get(e, 0.0)
+                for e in keys
+            }
+        return self._smoothed
+
+    def _request(self, emotion: str, confidence: float, reason: str, now: float) -> EmotionState:
+        """Switch to `emotion` unless the current one hasn't been shown long enough."""
+        if emotion == self._state.emotion:
+            self._waiting = None
+            return self._set_confidence(confidence)
+        # The resting neutral (startup/silence) isn't a reaction worth holding on screen.
+        resting = self._state.reason in ("startup", "silence")
+        if not resting and now - self._state.since < self._config.min_display_s:
+            self._waiting = (emotion, confidence, reason)
+            return self._state
+        self._clear_pending()
+        self._state = EmotionState(emotion, confidence, reason, now)
         return self._state
+
+    def _set_confidence(self, confidence: float) -> EmotionState:
+        self._state = replace(self._state, confidence=confidence)
+        return self._state
+
+    def _clear_pending(self) -> None:
+        self._streak_emotion, self._streak = None, 0
+        self._waiting = None

@@ -52,9 +52,27 @@
 
     <section class="card">
       <h2>Images</h2>
-      <p class="hint" id="image-hint">Add images per emotion (click "Add" or drop files on a box). When an emotion has several images, one is picked at random each time it starts. Click ★ to mark the default image: it is shown for any emotion that has no images.</p>
+      <p class="hint" id="image-hint">Add images per emotion (click "Add" or drop files on a box). Click ★ to mark the default image, which is shown for any emotion with no images. The dropdown under each image sets its intensity: <strong>Mild</strong> and <strong>Strong</strong> images are picked by how confident the detection is, and <strong>Any</strong> works for both.</p>
       <p id="image-msg" class="msg"></p>
       <div id="emotions" class="emotions"></div>
+    </section>
+
+    <section class="card">
+      <h2>Settings</h2>
+      <p class="hint">Changes apply immediately, with no restart, and are saved to <code>config.yaml</code>.</p>
+      <p id="settings-msg" class="msg"></p>
+      <div id="settings" class="settings"></div>
+    </section>
+
+    <section class="card">
+      <h2>Backup</h2>
+      <p class="hint">Save all your images and settings as one zip, or restore one. Importing <strong>replaces</strong> everything currently set up.</p>
+      <div class="row">
+        <a class="button secondary" href="/api/export" download>Export setup</a>
+        <button id="import-btn" class="secondary">Import setup…</button>
+        <input id="import-file" type="file" accept=".zip,application/zip" hidden>
+      </div>
+      <p id="backup-msg" class="msg"></p>
     </section>
 
     <section class="card">

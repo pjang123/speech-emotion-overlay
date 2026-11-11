@@ -33,7 +33,9 @@ Message = dict[str, Any]
 
 @dataclass(frozen=True)
 class PipelineEvents:
-    on_state: Callable[[EmotionState], None]
+    # (state, new_utterance): sent after every classified utterance (so intensity
+    # tiers and per-utterance image rotation can react) and on time-based changes.
+    on_state: Callable[[EmotionState, bool], None]
     on_message: Callable[[Message], None]  # status, vad and debug messages
 
 
@@ -178,6 +180,7 @@ class Pipeline:
         if not text:
             return
 
+        self._window.seconds = self._config.classifier.window_seconds  # live-editable
         self._window.add(text, utterance.ended_at)
         window_text = self._window.text(time.monotonic())
         scores = self._classifier.scores(window_text)
@@ -186,7 +189,9 @@ class Pipeline:
         now = time.monotonic()
         with self._state_lock:
             state = self._machine.on_scores(scores, now)
-            self._emit_if_changed(state)
+            smoothed = self._machine.smoothed
+            self._last_emitted = state
+            self._events.on_state(state, True)
 
         # The VAD only notices the end of speech after min_silence_ms of quiet.
         detect_delay = 0.0 if utterance.forced else self._config.vad.min_silence_ms / 1000
@@ -213,6 +218,7 @@ class Pipeline:
                 "transcript": text,
                 "window": window_text,
                 "scores": scores,
+                "smoothed": smoothed,
                 "emotion": state.emotion,
                 "confidence": state.confidence,
                 "forced": utterance.forced,
@@ -224,10 +230,11 @@ class Pipeline:
     # --- helpers ----------------------------------------------------------
 
     def _emit_if_changed(self, state: EmotionState) -> None:
-        """Publish a state change. Caller must hold _state_lock."""
-        if state.emotion != self._last_emitted.emotion:
+        """Publish a time-based switch (silence, delayed switch). Caller must hold _state_lock."""
+        last = self._last_emitted
+        if (state.emotion, state.since) != (last.emotion, last.since):
             self._last_emitted = state
-            self._events.on_state(state)
+            self._events.on_state(state, False)
 
     def _set_status(self, state: str, message: str) -> None:
         log.info(message)

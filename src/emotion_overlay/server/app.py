@@ -16,13 +16,21 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
 from emotion_overlay.audio.capture import InputDevice, list_input_devices
+from emotion_overlay.backup import BackupError, export_setup, read_setup
 from emotion_overlay.config import AppConfig, save_config
 from emotion_overlay.emotions import EMOTIONS, NEUTRAL
-from emotion_overlay.images import FORMATS, ImageStore, ImageValidationError
+from emotion_overlay.images import FORMATS, TIERS, ImageStore, ImageValidationError
 from emotion_overlay.pipeline import PipelineEvents
 from emotion_overlay.server.display import DisplayState
 from emotion_overlay.server.hub import Hub
 from emotion_overlay.server.security import install_security
+from emotion_overlay.settings import (
+    SettingsError,
+    apply_settings,
+    commit_settings,
+    editable_settings,
+    validate_settings,
+)
 from emotion_overlay.state_machine import EmotionState
 
 log = logging.getLogger(__name__)
@@ -45,6 +53,11 @@ class DefaultImageRequest(BaseModel):
     image_id: str | None
 
 
+class ImageUpdateRequest(BaseModel):
+    emotion: str | None = None
+    tier: str | None = None
+
+
 def create_app(
     config: AppConfig,
     *,
@@ -57,8 +70,12 @@ def create_app(
     display = DisplayState(store, config.display)
     hub.publish(display.message())
 
-    def on_state(state: EmotionState) -> None:
-        hub.publish(display.apply(state))
+    def on_state(state: EmotionState, new_utterance: bool) -> None:
+        hub.publish(display.apply(state, new_utterance))
+
+    def persist() -> None:
+        if config_path:
+            save_config(config, config_path)
 
     engine = (
         engine_factory(PipelineEvents(on_state=on_state, on_message=hub.publish))
@@ -132,9 +149,22 @@ def create_app(
         config.audio.device = body.device
         if engine:
             engine.set_device(body.device)
-        if config_path:
-            save_config(config, config_path)
+        persist()
         return {"selected": body.device, "engine": engine.status() if engine else None}
+
+    @app.get("/api/settings")
+    def get_settings() -> dict[str, Any]:
+        return editable_settings(config)
+
+    @app.put("/api/settings")
+    def put_settings(patch: dict[str, Any]) -> dict[str, Any]:
+        try:
+            apply_settings(config, patch)
+        except SettingsError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        persist()
+        hub.publish(display.refresh())  # transition, fallbacks, tiers may have changed
+        return editable_settings(config)
 
     @app.get("/api/images")
     def list_images() -> dict[str, Any]:
@@ -143,17 +173,20 @@ def create_app(
             "default_image": store.default_id,
             "max_bytes": config.uploads.max_bytes,
             "formats": [mime for _, mime in FORMATS.values()],
+            "tiers": list(TIERS),
         }
 
     @app.post("/api/images", status_code=201)
     async def upload_image(
-        emotion: Annotated[str, Form()], file: Annotated[UploadFile, File()]
+        emotion: Annotated[str, Form()],
+        file: Annotated[UploadFile, File()],
+        tier: Annotated[str, Form()] = "any",
     ) -> dict[str, Any]:
         # Read one byte past the limit so oversize files are detected without
         # holding an arbitrarily large upload in memory.
         data = await file.read(config.uploads.max_bytes + 1)
         try:
-            record = await asyncio.to_thread(store.add, data, emotion, file.filename)
+            record = await asyncio.to_thread(store.add, data, emotion, file.filename, tier)
         except ImageValidationError as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc
         hub.publish(display.refresh())
@@ -175,6 +208,18 @@ def create_app(
         hub.publish(display.refresh())
         return {"default_image": store.default_id}
 
+    # Must come after /api/images/default so "default" isn't taken as an image ID.
+    @app.put("/api/images/{image_id}")
+    def update_image(image_id: str, body: ImageUpdateRequest) -> dict[str, Any]:
+        try:
+            record = store.update(image_id, emotion=body.emotion, tier=body.tier)
+        except KeyError as exc:
+            raise HTTPException(404, "Image not found") from exc
+        except ImageValidationError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        hub.publish(display.refresh())
+        return record.to_api()
+
     @app.get("/images/{image_id}", include_in_schema=False)
     def serve_image(image_id: str) -> FileResponse:
         record = store.get(image_id)
@@ -186,6 +231,38 @@ def create_app(
             media_type=record.content_type,
             headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
+
+    # --- backup -----------------------------------------------------------
+
+    @app.get("/api/export")
+    def export() -> Response:
+        return Response(
+            export_setup(store, config),
+            media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="emotion-overlay-setup.zip"'},
+        )
+
+    @app.post("/api/import")
+    async def import_setup(file: Annotated[UploadFile, File()]) -> dict[str, Any]:
+        limit = config.uploads.max_import_bytes
+        data = await file.read(limit + 1)
+        if len(data) > limit:
+            raise HTTPException(413, f"setup zip is larger than {limit // (1024 * 1024)} MB")
+
+        def restore() -> int:
+            bundle = read_setup(data, config.uploads.max_bytes, config.uploads.max_pixels, limit)
+            validated = validate_settings(config, bundle.settings, strict=False)
+            store.replace_all(bundle.images, bundle.default_index)  # validates before replacing
+            commit_settings(config, validated)
+            return len(bundle.images)
+
+        try:
+            count = await asyncio.to_thread(restore)
+        except (BackupError, SettingsError, ImageValidationError) as exc:
+            raise HTTPException(400, f"Import failed, nothing was changed: {exc}") from exc
+        persist()
+        hub.publish(display.refresh())
+        return {"images": count, "settings": editable_settings(config)}
 
     # --- websocket --------------------------------------------------------
 

@@ -13,11 +13,10 @@ Security notes:
 import io
 import json
 import logging
-import random
 import re
 import threading
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from PIL import Image
@@ -33,6 +32,9 @@ FORMATS: dict[str, tuple[str, str]] = {
     "WEBP": ("webp", "image/webp"),
     "GIF": ("gif", "image/gif"),
 }
+# Intensity tiers: "any" images are used at every intensity; "mild"/"strong" are
+# preferred below/above display.strong_threshold when they exist.
+TIERS: tuple[str, ...] = ("any", "mild", "strong")
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -53,6 +55,7 @@ class ImageRecord:
     original_name: str
     width: int
     height: int
+    tier: str = "any"
 
     @property
     def filename(self) -> str:
@@ -68,6 +71,16 @@ class ImageRecord:
 
     def to_api(self) -> dict[str, object]:
         return {**asdict(self), "url": self.url}
+
+
+@dataclass(frozen=True)
+class NewImage:
+    """An image to add, e.g. from an imported setup."""
+
+    data: bytes
+    emotion: str
+    original_name: str | None = None
+    tier: str = "any"
 
 
 def inspect_image(data: bytes, max_pixels: int) -> tuple[str, int, int]:
@@ -90,6 +103,21 @@ def inspect_image(data: bytes, max_pixels: int) -> tuple[str, int, int]:
 def clean_display_name(name: str | None) -> str:
     base = re.split(r"[\\/]", name or "")[-1]
     return _CONTROL_RE.sub("", base).strip()[:120] or "image"
+
+
+def _check_labels(emotion: str, tier: str) -> None:
+    if emotion not in EMOTIONS:
+        raise ImageValidationError(f"unknown emotion '{emotion}'")
+    if tier not in TIERS:
+        raise ImageValidationError(f"unknown tier '{tier}'")
+
+
+def prefer_tier(images: list[ImageRecord], tier: str) -> list[ImageRecord]:
+    """Images of the wanted tier, else untiered ones, else whatever exists."""
+    exact = [i for i in images if i.tier == tier]
+    if exact:
+        return exact
+    return [i for i in images if i.tier == "any"] or images
 
 
 class ImageStore:
@@ -125,27 +153,27 @@ class ImageStore:
     def path(self, record: ImageRecord) -> Path:
         return self._dir / record.filename
 
-    def add(self, data: bytes, emotion: str, original_name: str | None) -> ImageRecord:
-        if emotion not in EMOTIONS:
-            raise ImageValidationError(f"unknown emotion '{emotion}'")
-        if len(data) > self._max_bytes:
-            raise ImageTooLargeError(f"file is larger than {self._max_bytes // (1024 * 1024)} MB")
-        fmt, width, height = inspect_image(data, self._max_pixels)
-        record = ImageRecord(
-            id=uuid.uuid4().hex,
-            emotion=emotion,
-            format=fmt,
-            original_name=clean_display_name(original_name),
-            width=width,
-            height=height,
-        )
+    def add(
+        self, data: bytes, emotion: str, original_name: str | None, tier: str = "any"
+    ) -> ImageRecord:
+        record = self._create(NewImage(data, emotion, original_name, tier))
         with self._lock:
-            # Original bytes are kept so animated GIFs survive; they are only ever
-            # served back with a fixed image MIME type and `nosniff`.
-            self.path(record).write_bytes(data)
             self._records[record.id] = record
             self._save()
         return record
+
+    def update(
+        self, image_id: str, *, emotion: str | None = None, tier: str | None = None
+    ) -> ImageRecord:
+        with self._lock:
+            record = self.get(image_id)
+            if record is None:
+                raise KeyError(image_id)
+            updated = replace(record, emotion=emotion or record.emotion, tier=tier or record.tier)
+            _check_labels(updated.emotion, updated.tier)
+            self._records[record.id] = updated
+            self._save()
+            return updated
 
     def remove(self, image_id: str) -> bool:
         with self._lock:
@@ -166,20 +194,57 @@ class ImageStore:
             self._default_id = image_id
             self._save()
 
-    def choose(
-        self, emotion: str, fallbacks: dict[str, str], rng: random.Random | None = None
-    ) -> ImageRecord | None:
-        """Pick an image for an emotion: its own, its fallback's, the default, then neutral."""
-        rng = rng or random.Random()
+    def replace_all(self, images: list[NewImage], default_index: int | None) -> None:
+        """Swap in a whole new image set. Every image is validated and written before
+        anything existing is touched, so a bad import leaves the current setup intact."""
+        created: list[ImageRecord] = []
+        try:
+            for image in images:
+                created.append(self._create(image))
+        except Exception:
+            for record in created:
+                self.path(record).unlink(missing_ok=True)
+            raise
+        with self._lock:
+            old = list(self._records.values())
+            self._records = {r.id: r for r in created}
+            self._default_id = created[default_index].id if default_index is not None else None
+            self._save()
+        for record in old:
+            self.path(record).unlink(missing_ok=True)
+
+    def pool(self, emotion: str, fallbacks: dict[str, str], tier: str) -> list[ImageRecord]:
+        """Images eligible for an emotion: its own, its fallback's, the default, then neutral."""
         with self._lock:
             for candidate in (emotion, fallbacks.get(emotion)):
                 images = self.for_emotion(candidate) if candidate else []
                 if images:
-                    return rng.choice(images)
+                    return prefer_tier(images, tier)
             if self._default_id is not None:
-                return self._records[self._default_id]
-            neutral = self.for_emotion(NEUTRAL)
-            return rng.choice(neutral) if neutral else None
+                return [self._records[self._default_id]]
+            return prefer_tier(self.for_emotion(NEUTRAL), tier)
+
+    # --- internals ----------------------------------------------------------
+
+    def _create(self, image: NewImage) -> ImageRecord:
+        """Validate and write one image file; does not register it."""
+        _check_labels(image.emotion, image.tier)
+        if len(image.data) > self._max_bytes:
+            raise ImageTooLargeError(f"file is larger than {self._max_bytes // (1024 * 1024)} MB")
+        fmt, width, height = inspect_image(image.data, self._max_pixels)
+        record = ImageRecord(
+            id=uuid.uuid4().hex,
+            emotion=image.emotion,
+            format=fmt,
+            original_name=clean_display_name(image.original_name),
+            width=width,
+            height=height,
+            tier=image.tier,
+        )
+        # Original bytes are kept so animated GIFs survive; they are only ever
+        # served back with a fixed image MIME type and `nosniff`.
+        self.path(record).write_bytes(image.data)
+        return record
 
     def _load(self) -> None:
         if not self._manifest.exists():
@@ -198,6 +263,7 @@ class ImageStore:
             valid = (
                 _ID_RE.match(record.id)
                 and record.emotion in EMOTIONS
+                and record.tier in TIERS
                 and record.format in FORMATS
                 and self.path(record).is_file()
             )

@@ -10,7 +10,61 @@ const ui = {
   images: [],
   defaultImage: null,
   maxBytes: 10 * 1024 * 1024,
+  settings: null,
 };
+
+const TIER_LABELS = { any: "Any", mild: "Mild", strong: "Strong" };
+
+// Settings form definition. `path` is "section.key" in /api/settings.
+const SETTINGS = [
+  {
+    title: "Display",
+    fields: [
+      { path: "display.transition", label: "Transition", type: "select",
+        options: { fade: "Cross-fade", cut: "Cut", bounce: "Bounce" } },
+      { path: "display.fade_ms", label: "Transition time (ms)", type: "number", min: 0, max: 5000, step: 50 },
+      { path: "display.rotation", label: "With several images", type: "select",
+        options: { random: "Pick randomly", cycle: "Cycle in order" } },
+      { path: "display.new_image_each_utterance", label: "New image every sentence", type: "checkbox",
+        help: "Switch to another image of the same emotion each time you speak." },
+      { path: "display.strong_threshold", label: "Strong-tier threshold", type: "number", min: 0, max: 1, step: 0.05,
+        help: "Strong images show at or above this confidence, Mild ones below." },
+    ],
+  },
+  {
+    title: "Detection",
+    fields: [
+      { path: "state.confidence_threshold", label: "Minimum confidence", type: "number", min: 0, max: 1, step: 0.05,
+        help: "Below this the detection counts as unsure." },
+      { path: "state.low_confidence", label: "When unsure", type: "select",
+        options: { hold: "Keep current image", neutral: "Go to neutral" } },
+      { path: "state.silence_timeout_s", label: "Back to neutral after silence (s)", type: "number",
+        min: 0.5, max: 600, step: 0.5 },
+      { path: "classifier.window_seconds", label: "Text window (s)", type: "number", min: 0, max: 60, step: 1,
+        help: "How much recent speech is judged together. 0 = only the last sentence." },
+      { path: "vad.min_silence_ms", label: "Pause that ends a sentence (ms)", type: "number",
+        min: 50, max: 5000, step: 50, help: "Shorter reacts faster but may split sentences." },
+      { path: "vad.max_utterance_s", label: "Longest chunk of speech (s)", type: "number", min: 1, max: 30, step: 0.5,
+        help: "Non-stop talking is judged in chunks this long." },
+      { path: "vad.threshold", label: "Voice detection threshold", type: "number", min: 0.05, max: 0.95, step: 0.05,
+        help: "Higher ignores more background noise." },
+    ],
+  },
+  {
+    title: "Stability (anti-flicker)",
+    note: "All off by default, so the image follows every sentence. Turn these on if it changes too often.",
+    fields: [
+      { path: "state.smoothing", label: "Smoothing", type: "number", min: 0.05, max: 1, step: 0.05,
+        help: "1 = off. Lower values blend each sentence with the ones before." },
+      { path: "state.persist_windows", label: "Sentences before switching", type: "number", min: 1, max: 10, step: 1,
+        help: "1 = off. A new emotion must win this many sentences in a row." },
+      { path: "state.instant_switch_margin", label: "Instant-switch lead", type: "number", min: 0, max: 1, step: 0.05,
+        help: "0 = off. Skip the wait when the new emotion leads by this much." },
+      { path: "state.min_display_s", label: "Minimum time on screen (s)", type: "number", min: 0, max: 60, step: 0.5,
+        help: "0 = off." },
+    ],
+  },
+];
 
 function el(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
@@ -141,12 +195,30 @@ function thumbnail(img) {
   const remove = el("button", { className: "icon danger", title: "Delete", textContent: "✕" });
   remove.addEventListener("click", () => deleteImage(img));
 
+  const tier = el(
+    "select",
+    { className: "tier", title: "Intensity tier" },
+    ...Object.entries(TIER_LABELS).map(([value, label]) => el("option", { value, textContent: label })),
+  );
+  tier.value = img.tier;
+  tier.addEventListener("change", () => updateImage(img.id, { tier: tier.value }));
+
   return el(
     "figure",
     { className: `thumb${isDefault ? " default" : ""}` },
     el("img", { src: img.url, alt: img.original_name, title: img.original_name, loading: "lazy" }),
+    tier,
     el("div", { className: "thumb-actions" }, star, remove),
   );
+}
+
+async function updateImage(imageId, changes) {
+  try {
+    await sendJson(`/api/images/${imageId}`, "PUT", changes);
+  } catch (err) {
+    flash("image-msg", err.message, true);
+  }
+  await loadImages();
 }
 
 async function upload(emotion, files) {
@@ -188,12 +260,139 @@ async function setDefault(imageId) {
   await loadImages();
 }
 
+// --- settings -----------------------------------------------------------------
+
+async function loadSettings() {
+  ui.settings = await api("/api/settings");
+  renderSettings();
+}
+
+function getSetting(path) {
+  const [section, key] = path.split(".");
+  return ui.settings[section][key];
+}
+
+async function saveSettings(patch) {
+  try {
+    ui.settings = await sendJson("/api/settings", "PUT", patch);
+    flash("settings-msg", "Saved.");
+  } catch (err) {
+    flash("settings-msg", err.message, true);
+  }
+  renderSettings(); // also reverts a rejected value
+}
+
+function settingInput(field) {
+  const value = getSetting(field.path);
+  let input;
+  if (field.type === "select") {
+    input = el(
+      "select",
+      {},
+      ...Object.entries(field.options).map(([v, label]) => el("option", { value: v, textContent: label })),
+    );
+    input.value = value;
+  } else if (field.type === "checkbox") {
+    input = el("input", { type: "checkbox", checked: value });
+  } else {
+    input = el("input", { type: "number", min: field.min, max: field.max, step: field.step, value });
+  }
+  input.addEventListener("change", () => {
+    let next = input.value;
+    if (field.type === "checkbox") next = input.checked;
+    if (field.type === "number") {
+      if (input.value === "" || Number.isNaN(Number(input.value))) return renderSettings();
+      next = Number(input.value);
+    }
+    const [section, key] = field.path.split(".");
+    saveSettings({ [section]: { [key]: next } });
+  });
+  return input;
+}
+
+function settingRow(label, input, help) {
+  return el(
+    "label",
+    { className: `setting${input.type === "checkbox" ? " check" : ""}` },
+    el("span", { className: "setting-label", textContent: label }),
+    input,
+    ...(help ? [el("span", { className: "setting-help", textContent: help })] : []),
+  );
+}
+
+function fallbackGroup() {
+  // For each emotion: which other emotion's images to borrow when it has none.
+  const fallbacks = ui.settings.display.fallbacks;
+  const rows = ui.emotions
+    .filter((emotion) => emotion !== "neutral")
+    .map((emotion) => {
+      const choices = ui.emotions.filter((e) => e !== emotion);
+      const input = el(
+        "select",
+        {},
+        el("option", { value: "", textContent: "Default image" }),
+        ...choices.map((e) => el("option", { value: e, textContent: `${e} images` })),
+      );
+      input.value = fallbacks[emotion] ?? "";
+      input.addEventListener("change", () => {
+        const next = { ...fallbacks };
+        if (input.value) next[emotion] = input.value;
+        else delete next[emotion];
+        saveSettings({ display: { fallbacks: next } });
+      });
+      return settingRow(emotion, input);
+    });
+  return el(
+    "fieldset",
+    {},
+    el("legend", { textContent: "Emotions without images" }),
+    el("p", { className: "hint", textContent: "What to show when an emotion has no images of its own." }),
+    ...rows,
+  );
+}
+
+function renderSettings() {
+  if (!ui.settings) return;
+  const groups = SETTINGS.map((group) =>
+    el(
+      "fieldset",
+      {},
+      el("legend", { textContent: group.title }),
+      ...(group.note ? [el("p", { className: "hint", textContent: group.note })] : []),
+      ...group.fields.map((f) => settingRow(f.label, settingInput(f), f.help)),
+    ),
+  );
+  $("settings").replaceChildren(...groups, fallbackGroup());
+}
+
+// --- backup -------------------------------------------------------------------
+
+async function importSetup() {
+  const input = $("import-file");
+  const file = input.files[0];
+  input.value = "";
+  if (!file) return;
+  if (!confirm(`Replace ALL current images and settings with "${file.name}"?`)) return;
+  const form = new FormData();
+  form.append("file", file);
+  flash("backup-msg", "Importing…");
+  try {
+    const result = await api("/api/import", { method: "POST", body: form });
+    flash("backup-msg", `Imported ${result.images} image(s) and settings.`);
+    ui.settings = result.settings;
+    renderSettings();
+    await loadImages();
+  } catch (err) {
+    flash("backup-msg", err.message, true);
+  }
+}
+
 // --- live view ------------------------------------------------------------------
 
 function renderState(msg) {
   $("emotion").textContent = msg.emotion;
   $("confidence").textContent = msg.confidence ? `${Math.round(msg.confidence * 100)}%` : "";
-  $("reason").textContent = msg.reason;
+  $("reason").textContent = msg.reason === "scores" ? `${msg.tier}` : msg.reason;
   const img = $("preview-img");
   img.hidden = !msg.image;
   $("preview-empty").hidden = Boolean(msg.image);
@@ -213,8 +412,10 @@ function renderSpeaking(speaking) {
 function renderDebug(msg) {
   $("transcript").textContent = msg.transcript || "—";
   $("window").textContent = msg.window || "—";
+  // Smoothed scores are what the state machine decides on (equal to raw when smoothing is off).
+  const shown = msg.smoothed ?? msg.scores;
   const rows = ui.emotions.map((emotion) => {
-    const score = msg.scores?.[emotion] ?? 0;
+    const score = shown?.[emotion] ?? 0;
     const fill = el("div", { className: "fill" });
     fill.style.width = `${(score * 100).toFixed(1)}%`;
     return el(
@@ -244,9 +445,11 @@ async function init() {
   });
   $("device-apply").addEventListener("click", applyDevice);
   $("device-refresh").addEventListener("click", loadDevices);
+  $("import-btn").addEventListener("click", () => $("import-file").click());
+  $("import-file").addEventListener("change", importSetup);
 
   ui.emotions = (await api("/api/emotions")).emotions;
-  await Promise.all([loadImages(), loadDevices()]);
+  await Promise.all([loadImages(), loadDevices(), loadSettings()]);
 
   connect("/ws?debug=1", {
     onOpen: () => setPill("conn", "connected", "ok"),

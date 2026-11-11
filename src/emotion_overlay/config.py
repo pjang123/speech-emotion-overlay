@@ -45,11 +45,20 @@ class ClassifierConfig(BaseModel):
 class StateConfig(BaseModel):
     confidence_threshold: float = Field(0.5, ge=0.0, le=1.0)
     low_confidence: Literal["hold", "neutral"] = "hold"
-    silence_timeout_s: float = Field(3.0, ge=0.5)
+    silence_timeout_s: float = Field(3.0, ge=0.5, le=600.0)
+    # Stability (anti-flicker). The defaults switch on every window, i.e. all off.
+    smoothing: float = Field(1.0, gt=0.0, le=1.0)  # EMA weight of the newest window; 1 = off
+    persist_windows: int = Field(1, ge=1, le=10)  # windows a new emotion must stay on top
+    instant_switch_margin: float = Field(0.0, ge=0.0, le=1.0)  # lead that skips the wait; 0 = off
+    min_display_s: float = Field(0.0, ge=0.0, le=60.0)
 
 
 class DisplayConfig(BaseModel):
+    transition: Literal["fade", "cut", "bounce"] = "fade"
     fade_ms: int = Field(300, ge=0, le=5000)
+    rotation: Literal["random", "cycle"] = "random"
+    new_image_each_utterance: bool = False
+    strong_threshold: float = Field(0.85, ge=0.0, le=1.0)  # "strong" tier at or above this
     fallbacks: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("fallbacks")
@@ -64,6 +73,7 @@ class DisplayConfig(BaseModel):
 class UploadConfig(BaseModel):
     max_bytes: int = Field(10 * 1024 * 1024, ge=1024)
     max_pixels: int = Field(4096 * 4096, ge=1)
+    max_import_bytes: int = Field(200 * 1024 * 1024, ge=1024)
 
 
 class ServerConfig(BaseModel):

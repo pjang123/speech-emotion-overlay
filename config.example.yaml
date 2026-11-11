@@ -27,18 +27,29 @@ classifier:
   device: cpu             # cpu | cuda | auto
   window_seconds: 6.0     # classify the transcript from the last N seconds; 0 = latest utterance only
 
+# state, display, vad and classifier.window_seconds can also be changed live on the setup page.
 state:
   confidence_threshold: 0.5
   low_confidence: hold    # hold = keep current image, neutral = fall back to neutral
   silence_timeout_s: 3.0  # return to neutral after this much silence
+  # Stability (anti-flicker). Defaults = off: the image follows every sentence.
+  smoothing: 1.0          # EMA weight of the newest window (1 = off, 0.3 = heavy smoothing)
+  persist_windows: 1      # a new emotion must win this many windows in a row (1 = off)
+  instant_switch_margin: 0.0  # ...unless it leads the current emotion by this much (0 = off)
+  min_display_s: 0.0      # minimum seconds an emotion stays on screen (0 = off)
 
 display:
+  transition: fade        # fade | cut | bounce
   fade_ms: 300
+  rotation: random        # random | cycle, when an emotion has several images
+  new_image_each_utterance: false  # pick a new image every sentence, even for the same emotion
+  strong_threshold: 0.85  # images tagged "strong" show at/above this confidence, "mild" below
   fallbacks: {}           # e.g. {disgust: anger, fear: surprise}; otherwise missing emotions show the default image
 
 uploads:
-  max_bytes: 10485760     # 10 MB
+  max_bytes: 10485760     # 10 MB per image
   max_pixels: 16777216    # 4096 x 4096
+  max_import_bytes: 209715200  # 200 MB per imported setup zip
 
 server:
   host: 127.0.0.1         # keep on localhost; nothing here is meant to be exposed to a network

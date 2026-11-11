@@ -1,11 +1,15 @@
 import json
-import random
 from pathlib import Path
 
 import pytest
 
 from conftest import make_image
-from emotion_overlay.images import ImageStore, ImageTooLargeError, ImageValidationError
+from emotion_overlay.images import (
+    ImageStore,
+    ImageTooLargeError,
+    ImageValidationError,
+    NewImage,
+)
 
 
 @pytest.fixture
@@ -100,19 +104,69 @@ def test_tampered_manifest_entries_are_skipped(store: ImageStore, tmp_path: Path
     assert reloaded.all() == [good]
 
 
-def test_choose_fallback_order(store: ImageStore) -> None:
-    rng = random.Random(0)
-    assert store.choose("anger", {}, rng) is None
+def test_pool_fallback_order(store: ImageStore) -> None:
+    assert store.pool("anger", {}, "mild") == []
 
     neutral = store.add(make_image(), "neutral", "n.png")
-    assert store.choose("anger", {}, rng) == neutral  # last resort: neutral images
+    assert store.pool("anger", {}, "mild") == [neutral]  # last resort: neutral images
 
     default = store.add(make_image(), "joy", "d.png")
     store.set_default(default.id)
-    assert store.choose("anger", {}, rng) == default  # default beats neutral
+    assert store.pool("anger", {}, "mild") == [default]  # default beats neutral
 
     sad = store.add(make_image(), "sadness", "s.png")
-    assert store.choose("anger", {"anger": "sadness"}, rng) == sad  # configured fallback
+    assert store.pool("anger", {"anger": "sadness"}, "mild") == [sad]  # configured fallback
 
     angry = store.add(make_image(), "anger", "a.png")
-    assert store.choose("anger", {"anger": "sadness"}, rng) == angry  # own images first
+    assert store.pool("anger", {"anger": "sadness"}, "mild") == [angry]  # own images first
+
+
+def test_pool_prefers_matching_tier(store: ImageStore) -> None:
+    plain = store.add(make_image(), "joy", "plain.png")
+    assert store.pool("joy", {}, "strong") == [plain]  # no tiered images: use untiered
+
+    strong = store.add(make_image(), "joy", "strong.png", tier="strong")
+    assert store.pool("joy", {}, "strong") == [strong]
+    assert store.pool("joy", {}, "mild") == [plain]  # untiered stands in for missing mild
+
+    store.remove(plain.id)
+    assert store.pool("joy", {}, "mild") == [strong]  # anything beats nothing
+
+
+def test_update_changes_tier_and_emotion(store: ImageStore, tmp_path: Path) -> None:
+    record = store.add(make_image(), "joy", "a.png")
+    updated = store.update(record.id, tier="strong", emotion="surprise")
+    assert (updated.tier, updated.emotion) == ("strong", "surprise")
+    assert ImageStore(tmp_path, 200_000, 10**6).get(record.id) == updated
+    with pytest.raises(ImageValidationError):
+        store.update(record.id, tier="extreme")
+    with pytest.raises(KeyError):
+        store.update("0" * 32, tier="mild")
+
+
+def test_replace_all_swaps_images_and_default(store: ImageStore) -> None:
+    old = store.add(make_image(), "joy", "old.png")
+    store.replace_all(
+        [NewImage(make_image(), "anger", "a.png"), NewImage(make_image("GIF"), "joy", "b.gif")],
+        default_index=1,
+    )
+    images = store.all()
+    assert [i.emotion for i in images] == ["anger", "joy"]
+    assert store.default_id == images[1].id
+    assert not store.path(old).exists()
+
+
+def test_replace_all_with_a_bad_image_changes_nothing(store: ImageStore, tmp_path: Path) -> None:
+    keep = store.add(make_image(), "joy", "keep.png")
+    with pytest.raises(ImageValidationError):
+        store.replace_all([NewImage(make_image(), "anger"), NewImage(b"junk", "joy")], None)
+    assert store.all() == [keep]
+    assert sorted(p.name for p in (tmp_path / "images").iterdir()) == [keep.filename]
+
+
+def test_manifest_without_tier_loads_as_untiered(store: ImageStore, tmp_path: Path) -> None:
+    record = store.add(make_image(), "joy", "a.png")
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    del manifest["images"][0]["tier"]  # written by Phase 1
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    assert ImageStore(tmp_path, 200_000, 10**6).get(record.id).tier == "any"
