@@ -24,6 +24,7 @@ class FakeEngine:
         self.events = events
         self.device: int | None = None
         self.started = False
+        self.listening = True
 
     def start(self) -> None:
         self.started = True
@@ -34,8 +35,11 @@ class FakeEngine:
     def set_device(self, device: int | None) -> None:
         self.device = device
 
+    def set_listening(self, listening: bool) -> None:
+        self.listening = listening
+
     def status(self) -> dict[str, Any]:
-        return {"state": "listening", "device": self.device}
+        return {"state": "listening", "device": self.device, "listening": self.listening}
 
 
 @pytest.fixture
@@ -131,6 +135,20 @@ def test_device_selection(client: TestClient, engine_holder: dict[str, FakeEngin
 
 def test_engine_lifecycle(client: TestClient, engine_holder: dict[str, FakeEngine]) -> None:
     assert engine_holder["engine"].started
+
+
+def test_listening_toggle(client: TestClient, engine_holder: dict[str, FakeEngine]) -> None:
+    res = client.put("/api/listening", json={"listening": False})
+    assert res.status_code == 200 and res.json()["listening"] is False
+    assert engine_holder["engine"].listening is False
+    assert client.put("/api/listening", json={"listening": True}).json()["listening"] is True
+    blocked = client.put("/api/listening", json={"listening": False}, headers=EVIL_ORIGIN)
+    assert blocked.status_code == 403 and engine_holder["engine"].listening is True
+
+
+def test_listening_without_audio_engine(config: AppConfig) -> None:
+    with TestClient(create_app(config, device_lister=lambda: []), base_url=BASE) as client:
+        assert client.put("/api/listening", json={"listening": False}).status_code == 409
 
 
 def test_websocket_streams_state_with_image(

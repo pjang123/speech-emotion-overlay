@@ -11,6 +11,7 @@ const ui = {
   defaultImage: null,
   maxBytes: 10 * 1024 * 1024,
   settings: null,
+  listening: true,
 };
 
 const TIER_LABELS = { any: "Any", mild: "Mild", strong: "Strong" };
@@ -400,8 +401,32 @@ function renderState(msg) {
 }
 
 function renderStatus(msg) {
-  const kind = { listening: "ok", loading: "warn", error: "bad", mic_error: "bad" }[msg.state];
+  const kind = { listening: "ok", loading: "warn", paused: "warn", error: "bad", mic_error: "bad" }[
+    msg.state
+  ];
   setPill("engine", msg.message, kind);
+
+  const button = $("listen-toggle");
+  ui.listening = msg.listening ?? true;
+  button.disabled = msg.state === "disabled" || msg.state === "error";
+  button.textContent = ui.listening ? "Stop listening" : "Start listening";
+  button.classList.toggle("paused", !ui.listening);
+  button.title = ui.listening
+    ? "Turn the microphone off. The overlay shows your neutral image until you start again."
+    : "Turn the microphone back on.";
+}
+
+async function toggleListening() {
+  const button = $("listen-toggle");
+  button.disabled = true;
+  try {
+    // The status message that follows over the WebSocket updates the button.
+    await sendJson("/api/listening", "PUT", { listening: !ui.listening });
+  } catch (err) {
+    setPill("engine", err.message, "bad");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderSpeaking(speaking) {
@@ -445,6 +470,7 @@ async function init() {
   });
   $("device-apply").addEventListener("click", applyDevice);
   $("device-refresh").addEventListener("click", loadDevices);
+  $("listen-toggle").addEventListener("click", toggleListening);
   $("import-btn").addEventListener("click", () => $("import-file").click());
   $("import-file").addEventListener("change", importSetup);
 

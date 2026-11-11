@@ -12,6 +12,7 @@ Everything runs locally. Audio never leaves your machine.
 - **Transitions:** cross-fade, cut, or bounce.
 - **Live settings:** every display and detection setting can be changed on the setup page while you're streaming. Changes apply immediately and are saved.
 - **Responsive by default:** the image follows every sentence. Optional anti-flicker controls (smoothing, a hold-off before switching, minimum time on screen) are available if you want a calmer overlay.
+- **Stop/Start listening:** one button on the setup page. Pausing closes the microphone completely, so Windows' mic-in-use indicator goes off. Speech still being processed is thrown away, and the overlay shows your neutral image.
 - **Backup:** export your whole setup (images and settings) as a zip, and import it on another PC or share it.
 
 ## How it works

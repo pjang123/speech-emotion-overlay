@@ -1,0 +1,104 @@
+"""Pipeline control logic with the mic and models replaced by fakes."""
+
+from typing import Any
+
+import numpy as np
+import pytest
+
+from emotion_overlay.audio.vad import Utterance
+from emotion_overlay.config import AppConfig
+from emotion_overlay.emotions import NEUTRAL
+from emotion_overlay.pipeline import Pipeline, PipelineEvents
+from emotion_overlay.state_machine import EmotionState
+
+
+class FakeCapture:
+    def __init__(self) -> None:
+        self.open_device: int | None | str = "closed"
+        self.device_name = "Fake Mic"
+
+    def start(self, device: int | None) -> None:
+        self.open_device = device
+
+    def stop(self) -> None:
+        self.open_device = "closed"
+
+
+class Recorder:
+    def __init__(self) -> None:
+        self.states: list[EmotionState] = []
+        self.messages: list[dict[str, Any]] = []
+
+    def events(self) -> PipelineEvents:
+        return PipelineEvents(
+            on_state=lambda state, _new: self.states.append(state),
+            on_message=self.messages.append,
+        )
+
+
+@pytest.fixture
+def setup(config: AppConfig) -> tuple[Pipeline, FakeCapture, Recorder]:
+    recorder = Recorder()
+    pipeline = Pipeline(config, recorder.events())
+    capture = FakeCapture()
+    pipeline._capture = capture  # type: ignore[assignment]
+    pipeline._segmenter = object()  # type: ignore[assignment]  # "models loaded"
+    pipeline._transcriber = type(
+        "T",
+        (),
+        {"backend": "fake", "device": "cpu", "transcribe": lambda self, a: "I am so happy"},
+    )()
+    pipeline._classifier = type("C", (), {"scores": lambda self, t: {"joy": 0.95}})()
+    return pipeline, capture, recorder
+
+
+def utterance() -> Utterance:
+    return Utterance(audio=np.zeros(16000, dtype=np.float32), ended_at=0.0, forced=False)
+
+
+def test_pause_closes_mic_and_shows_neutral(setup: tuple[Pipeline, FakeCapture, Recorder]) -> None:
+    pipeline, capture, recorder = setup
+    pipeline._open_mic()
+    pipeline._handle_utterance(utterance())
+    assert recorder.states[-1].emotion == "joy"
+
+    pipeline.set_listening(False)
+    assert capture.open_device == "closed"
+    assert (recorder.states[-1].emotion, recorder.states[-1].reason) == (NEUTRAL, "paused")
+    assert pipeline.status()["listening"] is False
+    assert recorder.messages[-1]["state"] == "paused"
+
+
+def test_resume_reopens_configured_mic(setup: tuple[Pipeline, FakeCapture, Recorder]) -> None:
+    pipeline, capture, _ = setup
+    pipeline.set_listening(False)
+    pipeline.set_device(4)  # changing device while paused must not open the mic
+    assert capture.open_device == "closed"
+    pipeline.set_listening(True)
+    assert capture.open_device == 4
+    assert pipeline.status()["state"] == "listening"
+
+
+def test_speech_finishing_after_pause_is_discarded(
+    setup: tuple[Pipeline, FakeCapture, Recorder],
+) -> None:
+    pipeline, _, recorder = setup
+    pipeline.set_listening(False)
+    count = len(recorder.states)
+    pipeline._handle_utterance(utterance())  # was already queued/transcribing
+    assert len(recorder.states) == count
+
+
+def test_pause_drops_queued_utterances(setup: tuple[Pipeline, FakeCapture, Recorder]) -> None:
+    pipeline, _, _ = setup
+    pipeline._utt_q.put(utterance())
+    pipeline.set_listening(False)
+    assert pipeline._utt_q.empty()
+
+
+def test_pause_before_models_load_is_remembered(config: AppConfig) -> None:
+    recorder = Recorder()
+    pipeline = Pipeline(config, recorder.events())
+    pipeline.set_listening(False)  # still "loading": nothing to close yet
+    assert pipeline.status()["listening"] is False
+    assert recorder.states == []

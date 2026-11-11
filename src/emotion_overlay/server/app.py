@@ -42,11 +42,16 @@ class AudioEngine(Protocol):
     def start(self) -> None: ...
     def stop(self) -> None: ...
     def set_device(self, device: int | None) -> None: ...
+    def set_listening(self, listening: bool) -> None: ...
     def status(self) -> dict[str, Any]: ...
 
 
 class DeviceRequest(BaseModel):
     device: int | None
+
+
+class ListeningRequest(BaseModel):
+    listening: bool
 
 
 class DefaultImageRequest(BaseModel):
@@ -151,6 +156,13 @@ def create_app(
             engine.set_device(body.device)
         persist()
         return {"selected": body.device, "engine": engine.status() if engine else None}
+
+    @app.put("/api/listening")
+    def set_listening(body: ListeningRequest) -> dict[str, Any]:
+        if engine is None:
+            raise HTTPException(409, "Audio is disabled (started with --no-audio)")
+        engine.set_listening(body.listening)
+        return engine.status()
 
     @app.get("/api/settings")
     def get_settings() -> dict[str, Any]:

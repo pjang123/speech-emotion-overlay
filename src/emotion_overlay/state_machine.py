@@ -30,8 +30,12 @@ from emotion_overlay.emotions import NEUTRAL, Scores
 class EmotionState:
     emotion: str
     confidence: float  # smoothed score of the displayed emotion; drives intensity tiers
-    reason: str  # startup | scores | low_confidence | silence
+    reason: str  # startup | scores | low_confidence | silence | paused
     since: float  # when this emotion started being displayed
+
+
+# Neutral states the app rests in rather than reacted with; min_display_s doesn't hold them.
+RESTING_REASONS = frozenset({"startup", "silence", "paused"})
 
 
 def pick_candidate(scores: Scores, current: str) -> tuple[str, float]:
@@ -117,6 +121,14 @@ class EmotionStateMachine:
             self._request(*self._waiting, now)
         return self._state
 
+    def reset(self, now: float, reason: str = "paused") -> EmotionState:
+        """Go to neutral immediately and forget all history (e.g. listening paused)."""
+        self._smoothed.clear()
+        self._clear_pending()
+        self._last_activity = now
+        self._state = EmotionState(NEUTRAL, 0.0, reason, now)
+        return self._state
+
     # --- helpers ----------------------------------------------------------
 
     def _smooth(self, scores: Scores) -> Scores:
@@ -136,8 +148,8 @@ class EmotionStateMachine:
         if emotion == self._state.emotion:
             self._waiting = None
             return self._set_confidence(confidence)
-        # The resting neutral (startup/silence) isn't a reaction worth holding on screen.
-        resting = self._state.reason in ("startup", "silence")
+        # The resting neutral isn't a reaction worth holding on screen.
+        resting = self._state.reason in RESTING_REASONS
         if not resting and now - self._state.since < self._config.min_display_s:
             self._waiting = (emotion, confidence, reason)
             return self._state

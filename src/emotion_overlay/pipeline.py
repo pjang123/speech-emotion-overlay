@@ -58,6 +58,8 @@ class Pipeline:
         self._classifier: Any = None
         self._status: Message = {"type": "status", "state": "idle", "message": "Not started"}
         self._dropped_blocks = 0
+        self._listening = True  # runtime only: every start begins listening
+        self._control_lock = threading.Lock()  # serialises start/stop/device changes
 
     # --- control (called from the server) ---------------------------------
 
@@ -69,16 +71,40 @@ class Pipeline:
         self._capture.stop()
 
     def set_device(self, device: int | None) -> None:
-        self._config.audio.device = device
-        if self._segmenter is None:
-            return  # still loading; _boot opens the configured device when ready
-        self._capture.stop()
-        self._reset_vad.set()
-        self._open_mic()
+        with self._control_lock:
+            self._config.audio.device = device
+            if self._segmenter is None or not self._listening:
+                return  # opened with the new device on boot / when listening resumes
+            self._capture.stop()
+            self._reset_vad.set()
+            self._open_mic()
+
+    def set_listening(self, listening: bool) -> None:
+        """Pause or resume. Pausing closes the microphone entirely (the OS mic-in-use
+        indicator goes off), discards unprocessed speech and shows neutral."""
+        with self._control_lock:
+            if listening == self._listening:
+                return
+            self._listening = listening
+            if self._segmenter is None:
+                return  # still loading; _boot respects the flag
+            if listening:
+                self._open_mic()
+                return
+            self._capture.stop()
+            self._reset_vad.set()
+            self._drain(self._utt_q)
+            self._window.clear()
+            with self._state_lock:
+                state = self._machine.reset(time.monotonic(), "paused")
+                self._last_emitted = state
+                self._events.on_state(state, False)
+            self._set_status("paused", "Paused: microphone is off")
 
     def status(self) -> Message:
         return {
             **self._status,
+            "listening": self._listening,
             "device": self._capture.device_name or None,
             "asr": f"{self._transcriber.backend} on {self._transcriber.device}"
             if self._transcriber
@@ -111,7 +137,11 @@ class Pipeline:
 
         for target, name in ((self._vad_loop, "vad"), (self._asr_loop, "asr")):
             threading.Thread(target=target, name=name, daemon=True).start()
-        self._open_mic()
+        with self._control_lock:
+            if self._listening:
+                self._open_mic()
+            else:
+                self._set_status("paused", "Paused: microphone is off")
 
     def _open_mic(self) -> None:
         try:
@@ -176,6 +206,8 @@ class Pipeline:
         t_start = time.perf_counter()
         text = self._transcriber.transcribe(utterance.audio)
         t_asr = time.perf_counter()
+        if not self._listening:
+            return  # paused while this was being transcribed: drop it
         self._recorder.record(utterance.audio, SAMPLE_RATE, text)
         if not text:
             return
@@ -238,7 +270,12 @@ class Pipeline:
 
     def _set_status(self, state: str, message: str) -> None:
         log.info(message)
-        self._status = {"type": "status", "state": state, "message": message}
+        self._status = {
+            "type": "status",
+            "state": state,
+            "message": message,
+            "listening": self._listening,
+        }
         self._events.on_message(self._status)
 
     @staticmethod

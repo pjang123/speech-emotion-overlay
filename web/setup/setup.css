@@ -124,6 +124,24 @@ a.button {
   text-decoration: none;
 }
 
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Header mic toggle: calm while listening, loud while paused so it isn't forgotten. */
+button.listen {
+  color: var(--text);
+  border-color: var(--border);
+  background: transparent;
+}
+
+button.listen.paused {
+  color: #fff;
+  border-color: var(--bad);
+  background: var(--bad);
+}
+
 button.icon {
   padding: 0 6px;
   border: none;

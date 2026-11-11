@@ -118,6 +118,18 @@ def test_silence_timeout_reads_live_config(cfg: StateConfig) -> None:
     assert sm.tick(now=1.0).emotion == NEUTRAL
 
 
+def test_reset_goes_neutral_and_forgets_history(cfg: StateConfig) -> None:
+    cfg.smoothing = 0.3
+    cfg.min_display_s = 30.0
+    sm = EmotionStateMachine(cfg, now=0.0)
+    sm.on_scores(scores(anger=0.95), now=1.0)
+    state = sm.reset(now=2.0)
+    assert (state.emotion, state.reason, state.since) == (NEUTRAL, "paused", 2.0)
+    assert sm.smoothed == {}
+    # resting neutral: the next reaction isn't held back by min_display_s
+    assert sm.on_scores(scores(joy=0.9), now=2.5).emotion == "joy"
+
+
 def test_tick_while_neutral_is_a_no_op(cfg: StateConfig) -> None:
     sm = EmotionStateMachine(cfg, now=0.0)
     assert sm.tick(now=100.0).reason == "startup"
