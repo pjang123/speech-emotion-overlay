@@ -25,7 +25,7 @@ import numpy as np
 
 from emotion_overlay.audio.capture import MicCapture
 from emotion_overlay.audio.vad import SAMPLE_RATE, Utterance, UtteranceSegmenter
-from emotion_overlay.calibration import Calibration
+from emotion_overlay.calibration import CALIBRATION_SILENCE_MS, Calibration, SpeechStats
 from emotion_overlay.classify.fusion import score_utterance
 from emotion_overlay.classify.window import TranscriptWindow
 from emotion_overlay.config import AppConfig
@@ -36,8 +36,9 @@ from emotion_overlay.state_machine import EmotionState, EmotionStateMachine
 log = logging.getLogger(__name__)
 
 Message = dict[str, Any]
-# Receives (text scores for this utterance alone, raw voice scores) during calibration.
-CalibrationListener = Callable[[Scores, Scores], None]
+# Receives (text scores for this utterance alone, raw voice scores, how it was spoken)
+# during calibration.
+CalibrationListener = Callable[[Scores, Scores, SpeechStats], None]
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,9 @@ class Pipeline:
         """While set, utterances are handed to the listener instead of changing the display."""
         self._calibration_listener = listener
         self._window.clear()  # don't mix calibration lines with live speech
+        if isinstance(self._segmenter, UtteranceSegmenter):
+            # A longer end-of-line pause keeps each prompt in one piece.
+            self._segmenter.min_silence_override_ms = CALIBRATION_SILENCE_MS if listener else None
 
     def status(self) -> Message:
         return {
@@ -294,7 +298,11 @@ class Pipeline:
             return  # nothing usable (e.g. a cough Whisper heard no words in)
 
         if listener:
-            listener(text_scores, voice_raw)
+            listener(
+                text_scores,
+                voice_raw,
+                SpeechStats(utterance.pauses_ms, utterance.speech_probs, utterance.noise_probs),
+            )
             self._events.on_message(
                 {"type": "debug", "transcript": text, "calibrating": True, "scores": text_scores}
             )

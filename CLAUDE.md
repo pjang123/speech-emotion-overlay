@@ -6,6 +6,7 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 - Phase 1 (pipeline MVP) built and verified by the user on real mic + overlay (2026-11-12).
 - Phase 2 (stability rules, rotation, tiers, transitions, live settings, zip backup) built and used by the user. Added on request: Stop/Start listening, settings reset.
 - Phase 3 (voice emotion model superb/hubert-base-superb-er, late fusion, label_map, calibration) built. User's own calibration: words 79%, voice 36%, combined 79% before/after.
+- Added on request: personalised calibration (`personalize.py`) that profiles the speaker from the 14 lines and recommends settings with reasons; user ticks which to apply (`POST /api/calibration/save {"apply": [paths]}`).
 - Phase 4 (eval tooling, RAVDESS results, README) done. Pending from the user: own recordings (`eval record` + `eval run mine`) and a demo GIF for the README.
 - Key results (RAVDESS, see eval/results/ravdess/report.md): voice model answers "ang" for 79% of clips (domain shift; level normalisation and resampling ruled out); CV-best voice weight 0.6 there, but default stays 0.25 because real speech carries emotion in words. Latency median 712 ms / p95 868 ms (faster-whisper, CPU).
 - User decision: the image should change freely with every sentence. Anti-flicker rules exist but default OFF; don't turn them on by default.
@@ -18,7 +19,7 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 - Lint/format: `uv run ruff check .` / `uv run ruff format .`
 
 ## Layout
-- `src/emotion_overlay/`: `audio/` (capture, VAD segmenter), `asr.py` (two Whisper backends), `classify/` (text model, voice model, rolling window, `fusion.py` = pure scoring math), `calibration.py` (prompts, bias fitting with leave-one-out accuracy, session, store; `server/calibration.py` drives it live), `state_machine.py` (pure display logic), `pipeline.py` (worker threads), `images.py` (validated store, tiers), `settings.py` (live-editable config whitelist), `backup.py` (zip export/import), `server/` (FastAPI app, hub, display = image picker, security middleware), `model_cache.py` (cache-first loading)
+- `src/emotion_overlay/`: `audio/` (capture, VAD segmenter), `asr.py` (two Whisper backends), `classify/` (text model, voice model, rolling window, `fusion.py` = pure scoring math), `calibration.py` (prompts, bias fitting with leave-one-out accuracy, session, store; `server/calibration.py` drives it live), `personalize.py` (speaking profile -> recommended settings; pure, conservative rules), `state_machine.py` (pure display logic), `pipeline.py` (worker threads), `images.py` (validated store, tiers), `settings.py` (live-editable config whitelist), `backup.py` (zip export/import), `server/` (FastAPI app, hub, display = image picker, security middleware), `model_cache.py` (cache-first loading)
 - `web/`: vanilla JS/CSS, no build step. `web/common/socket.js` is shared.
 - `tests/`: pytest; `conftest.make_image()` builds test images.
 

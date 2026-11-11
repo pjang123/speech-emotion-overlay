@@ -17,7 +17,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from emotion_overlay.audio.capture import InputDevice, list_input_devices
 from emotion_overlay.backup import BackupError, export_setup, read_setup
-from emotion_overlay.calibration import Calibration, CalibrationError, CalibrationStore
+from emotion_overlay.calibration import Calibration, CalibrationError, CalibrationStore, SpeechStats
 from emotion_overlay.config import AppConfig, save_config
 from emotion_overlay.emotions import EMOTIONS, NEUTRAL, Scores
 from emotion_overlay.images import FORMATS, TIERS, ImageStore, ImageValidationError
@@ -48,7 +48,7 @@ class AudioEngine(Protocol):
     def set_listening(self, listening: bool) -> None: ...
     def set_calibration(self, calibration: Calibration | None) -> None: ...
     def set_calibration_listener(
-        self, listener: Callable[[Scores, Scores], None] | None
+        self, listener: Callable[[Scores, Scores, SpeechStats], None] | None
     ) -> None: ...
     def status(self) -> dict[str, Any]: ...
 
@@ -59,6 +59,10 @@ class DeviceRequest(BaseModel):
 
 class ListeningRequest(BaseModel):
     listening: bool
+
+
+class SaveCalibrationRequest(BaseModel):
+    apply: list[str] = []  # recommendation paths to apply, e.g. "vad.min_silence_ms"
 
 
 class DefaultImageRequest(BaseModel):
@@ -96,8 +100,18 @@ def create_app(
     )
     if engine is None:
         hub.publish({"type": "status", "state": "disabled", "message": "Audio disabled"})
+
+    def apply_patch(patch: dict[str, dict[str, Any]]) -> None:
+        """Apply a validated settings patch from calibration, as the settings page would."""
+        try:
+            apply_settings(config, patch)
+        except SettingsError as exc:
+            raise CalibrationError(f"could not apply settings: {exc}") from exc
+        persist()
+        hub.publish(display.refresh())
+
     calibration = CalibrationController(
-        config, CalibrationStore(config.data_dir), engine, hub.publish
+        config, CalibrationStore(config.data_dir), engine, hub.publish, apply_patch
     )
     hub.publish(calibration.message())
 
@@ -268,6 +282,14 @@ def create_app(
     def get_calibration() -> dict[str, Any]:
         return calibration.message()
 
+    # Literal path before the {action} route below.
+    @app.post("/api/calibration/save")
+    def save_calibration(body: SaveCalibrationRequest | None = None) -> dict[str, Any]:
+        try:
+            return calibration.save(apply=body.apply if body else [])
+        except CalibrationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.post("/api/calibration/{action}")
     def calibration_action(action: str) -> dict[str, Any]:
         actions = {
@@ -276,7 +298,6 @@ def create_app(
             "back": calibration.back,
             "finish": calibration.finish_early,
             "cancel": calibration.cancel,
-            "save": calibration.save,
         }
         if action not in actions:
             raise HTTPException(404, "Unknown calibration action")

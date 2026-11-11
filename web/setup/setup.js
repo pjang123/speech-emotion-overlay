@@ -421,6 +421,68 @@ async function calibrationAction(action, method = "POST") {
   }
 }
 
+async function saveCalibration(applyPaths) {
+  try {
+    const msg = await sendJson("/api/calibration/save", "POST", { apply: applyPaths });
+    renderCalibration(msg);
+    if (applyPaths.length) {
+      await loadSettings(); // show the new values in the Settings panel
+      flash("calibration-msg", `Saved, and applied ${applyPaths.length} setting(s).`);
+    } else {
+      flash("calibration-msg", "Calibration saved.");
+    }
+  } catch (err) {
+    flash("calibration-msg", err.message, true);
+  }
+}
+
+const formatValue = (value) =>
+  typeof value === "boolean" ? (value ? "on" : "off") : Number.isInteger(value) ? `${value}` : value.toFixed(2);
+
+function profileLines(profile) {
+  if (!profile) return [];
+  const lines = [];
+  if (profile.pauses_measured !== undefined) {
+    lines.push(
+      profile.pauses_measured
+        ? `Pauses inside your lines: most (75%) were ${profile.pause_p75_ms} ms or shorter (${profile.pauses_measured} measured).`
+        : "Pauses inside your lines: none, you spoke each line in one go.",
+    );
+  }
+  if (profile.speech_level !== undefined) {
+    lines.push(
+      `Voice detection: your speech scored ${profile.speech_level.toFixed(2)}+, ` +
+        `background up to ${profile.background_level.toFixed(2)} (0 = silence, 1 = clear speech).`,
+    );
+  }
+  const weights = profile.voice_weight_accuracy;
+  if (weights) {
+    const best = Object.entries(weights).sort((a, b) => b[1] - a[1])[0];
+    lines.push(`Tone of voice: your lines scored best at voice weight ${best[0]} (${percent(best[1])} correct).`);
+  }
+  return lines.map((text) => el("li", { textContent: text }));
+}
+
+function recommendationList(recommendations) {
+  // One checkbox per recommendation, all ticked; the user can untick any.
+  const rows = recommendations.map((rec) => {
+    const box = el("input", { type: "checkbox", checked: true, value: rec.path });
+    return el(
+      "label",
+      { className: "recommendation" },
+      box,
+      el(
+        "span",
+        {},
+        el("strong", { textContent: `${rec.label}: ` }),
+        el("span", { className: "mono", textContent: `${formatValue(rec.current)} → ${formatValue(rec.value)}` }),
+        el("span", { className: "setting-help", textContent: rec.reason }),
+      ),
+    );
+  });
+  return el("div", { className: "recommendations" }, ...rows);
+}
+
 function accuracyTable(accuracy) {
   const rows = [
     ["Words only", accuracy.text],
@@ -472,6 +534,7 @@ function renderCalibration(msg) {
   if (msg.result || msg.error) {
     const parts = [];
     if (msg.error) parts.push(el("p", { className: "msg error", textContent: msg.error }));
+    let list = null;
     if (msg.result) {
       parts.push(
         el("p", { textContent: `Recorded ${msg.result.samples} lines. How often each part picked the right emotion:` }),
@@ -480,15 +543,34 @@ function renderCalibration(msg) {
           className: "muted small",
           textContent:
             "* Each line is scored by a calibration fitted on the other lines only, so this isn't inflated. " +
-            "With so few lines, treat these numbers as rough.",
+            "It already uses the voice weight recommended below. With so few lines, treat these numbers as rough.",
         }),
       );
+      const profile = profileLines(msg.result.profile);
+      if (profile.length) {
+        parts.push(el("h3", { className: "subhead", textContent: "How you speak" }), el("ul", {}, ...profile));
+      }
+      parts.push(el("h3", { className: "subhead", textContent: "Recommended settings for you" }));
+      if (msg.recommendations.length) {
+        list = recommendationList(msg.recommendations);
+        parts.push(list);
+      } else {
+        parts.push(el("p", { className: "muted", textContent: "Your current settings already suit you; no changes needed." }));
+      }
     }
+    const checkedPaths = () => (list ? [...list.querySelectorAll("input:checked")].map((box) => box.value) : []);
     parts.push(
       el(
         "div",
         { className: "row" },
-        ...(msg.result ? [button("Save calibration", () => calibrationAction("save"), false)] : []),
+        ...(msg.result && msg.recommendations.length
+          ? [
+              button("Save and apply ticked settings", () => saveCalibration(checkedPaths()), false),
+              button("Save calibration only", () => saveCalibration([])),
+            ]
+          : msg.result
+            ? [button("Save calibration", () => saveCalibration([]), false)]
+            : []),
         button(msg.result ? "Discard" : "Close", () => calibrationAction("cancel")),
         button("Start over", () => calibrationAction("start")),
       ),
@@ -502,8 +584,13 @@ function renderCalibration(msg) {
     ? `Calibrated ${new Date(saved.created).toLocaleString()} from ${saved.samples} lines ` +
       `(combined accuracy ${percent(saved.accuracy.before)} → ${percent(saved.accuracy.after)}).`
     : "Not calibrated yet. The app works without it, but calibration helps the voice model fit your mic.";
+  const applied = (msg.applied ?? []).map((rec) =>
+    el("li", { textContent: `${rec.label}: ${formatValue(rec.current)} → ${formatValue(rec.value)}` }),
+  );
   box.replaceChildren(
     el("p", { textContent: summary }),
+    ...(applied.length ? [el("p", { textContent: "Settings adjusted for you:" }), el("ul", {}, ...applied)] : []),
+    ...(saved ? [el("ul", { className: "muted small" }, ...profileLines(saved.profile))] : []),
     ...(voiceState ? [el("p", { className: "muted small", textContent: voiceState })] : []),
     el(
       "div",

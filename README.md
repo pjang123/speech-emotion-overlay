@@ -9,7 +9,7 @@ Everything runs locally. Audio never leaves your machine.
 ## Features
 
 - **Words and tone of voice:** a text model reads what you say, and a second model listens to how you say it. Their scores are combined with a weight you control.
-- **Per-user calibration:** read 14 short lines and the app learns how your voice and mic sound. It reports honestly how much that helped.
+- **Calibration that adapts to you:** read 14 short lines. The app learns how your voice and mic sound, profiles how you speak (pauses, volume vs. background, expressiveness), tests whether tone of voice helps for you, and recommends settings tuned to you, each with its reason. You choose which to apply.
 - **Your images:** several per emotion, chosen at random or in a cycle, with optional **Mild** and **Strong** versions picked by how confident the detection is. Animated GIFs work.
 - **Transitions:** cross-fade, cut, or bounce.
 - **Live settings:** every display and detection setting can be changed on the setup page while you're streaming. Changes apply immediately and are saved.
@@ -43,6 +43,15 @@ Everything in this diagram runs on your PC. The overlay only ever receives "show
 - **Label mismatch, handled explicitly:** the voice model only knows `neu/hap/ang/sad`. A configurable `label_map` says which emotions each one stands for (e.g. `ang → anger, disgust, fear`). A voice label's probability is shared among its emotions in proportion to the text scores, so the voice says *agitated* and the words say *which kind*. When no words were heard (a laugh, a gasp), the voice alone decides.
 - **Late fusion:** `final = (1 − w) · text + w · voice`, with `w = 0.25` by default (adjustable live).
 - **Calibration** (`calibration.py`): fits two small sets of per-class log-space offsets, `softmax(log p + b)`. The first undoes a skew in the voice model for your mic, for example "everything sounds angry". The second nudges the combined result. They're L2-regularised, clipped at ±3, and left at 0 for emotions you didn't record. The reported "after" accuracy is **leave-one-out**: each line is scored by a fit that never saw it.
+- **Personalised settings** (`personalize.py`): the same 14 lines also tune settings to the speaker. During calibration a line only ends after 900 ms of quiet, so it isn't split and the pauses inside it can be measured. Every rule needs enough evidence and stays within safe bounds.
+
+  | Measured | Setting | Rule |
+  |---|---|---|
+  | Pauses inside your lines | Pause that ends a sentence | Your typical (75th-percentile) pause + 100 ms, between 300 and 700 ms. It's biased toward fast reactions, because a split sentence still gets judged as a whole via the rolling text window |
+  | VAD score of your speech vs. your background | Voice detection threshold | Moved only if your speech or your background comes close to the current threshold (a quiet speaker or a noisy room) |
+  | Leave-one-out accuracy at voice weights 0–0.8 | Voice weight, or tone of voice off | Changes only if it gets at least one more line right than the current weight. Among ties it picks the smallest change, and it only turns voice off if every weight does worse than none |
+  | Scores of your correctly detected emotional lines | Minimum confidence | The highest threshold that still lets 85% of them through |
+  | Same scores | Strong-tier threshold | Their median, so your Mild and Strong images show about equally often |
 - **State machine** (`state_machine.py`): pure, unit-tested logic that decides what is actually displayed. Models never drive the image directly. The rules:
 
   ```
@@ -178,6 +187,6 @@ uv run ruff format .        # format
 ## Known limitations
 
 - **The voice model is weak outside its training data:** it only knows 4 moods, and on RAVDESS it leans heavily toward "angry" (see [Evaluation](#evaluation)). It's weighted low by default. A stronger or fine-tuned voice model is the clearest next step, and the `audio_emotion.model` and `label_map` settings exist so one can be swapped in.
-- **Calibration is small:** 14 lines can only nudge the models, not retrain them. It's fitted at the voice weight in use at the time, so recalibrate if you change that weight a lot.
+- **Calibration is small:** 14 lines can only nudge the models, not retrain them, and the recommended settings are only as good as how naturally you read the lines. It's fitted at the recommended (or current) voice weight, so recalibrate if you change that weight a lot.
 - **English only** for now. The language is a config value, not hard-coded, but the default emotion model is English.
 - **Microphone by index:** if you plug in or remove audio devices, re-select your mic on the setup page.

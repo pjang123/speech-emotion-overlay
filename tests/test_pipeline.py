@@ -139,13 +139,36 @@ def test_calibration_listener_takes_over(setup: tuple[Pipeline, FakeCapture, Rec
     pipeline, _, recorder = setup
     pipeline._voice = FakeVoice({"hap": 1.0})
     received = []
-    pipeline.set_calibration_listener(lambda text, voice: received.append((text, voice)))
+    pipeline.set_calibration_listener(lambda text, voice, speech: received.append((text, voice)))
     pipeline._handle_utterance(utterance())
     assert received == [({"joy": 0.95}, {"hap": 1.0})]
     assert recorder.states == []  # the overlay isn't touched while calibrating
     pipeline.set_calibration_listener(None)
     pipeline._handle_utterance(utterance())
     assert recorder.states[-1].emotion == "joy"
+
+
+def test_calibration_gets_speech_stats_and_longer_pauses(config: AppConfig) -> None:
+    from emotion_overlay.audio.vad import UtteranceSegmenter
+    from emotion_overlay.calibration import CALIBRATION_SILENCE_MS
+
+    recorder = Recorder()
+    pipeline = Pipeline(config, recorder.events())
+    segmenter = UtteranceSegmenter(lambda frame: 0.0, config.vad)
+    pipeline._segmenter = segmenter
+    pipeline._voice_state = "failed"
+    pipeline._transcriber = type(
+        "T", (), {"backend": "f", "device": "cpu", "transcribe": lambda s, a: "hi"}
+    )()
+    pipeline._classifier = type("C", (), {"scores": lambda s, t: {"joy": 0.9}})()
+    got = []
+    pipeline.set_calibration_listener(lambda text, voice, speech: got.append(speech))
+    assert segmenter.min_silence_override_ms == CALIBRATION_SILENCE_MS
+    utt = Utterance(np.zeros(16000, np.float32), 0.0, False, (120, 300), (0.9, 0.95), (0.01,))
+    pipeline._handle_utterance(utt)
+    assert got[0].pauses_ms == (120, 300) and got[0].noise_probs == (0.01,)
+    pipeline.set_calibration_listener(None)
+    assert segmenter.min_silence_override_ms is None
 
 
 def test_pause_before_models_load_is_remembered(config: AppConfig) -> None:

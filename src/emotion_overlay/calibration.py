@@ -56,8 +56,22 @@ PROMPTS: tuple[tuple[str, str], ...] = tuple(
 )
 
 
+# While calibrating, a line only ends after this much quiet, so a mid-line pause
+# doesn't split it (and the length of those pauses can be measured).
+CALIBRATION_SILENCE_MS = 900
+
+
 class CalibrationError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class SpeechStats:
+    """How a line was spoken, from the voice activity detector."""
+
+    pauses_ms: tuple[int, ...] = ()
+    speech_probs: tuple[float, ...] = ()
+    noise_probs: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -65,6 +79,7 @@ class CalibrationSample:
     label: str
     text: Scores  # text model scores for this line alone
     voice: Scores  # raw voice model scores (its own labels)
+    speech: SpeechStats | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +91,8 @@ class Calibration:
     created: str
     # Share of recordings classified correctly. None when not measurable.
     accuracy: dict[str, float | None] = field(default_factory=dict)
+    # Measured speaking profile (see personalize.py); numbers only.
+    profile: dict[str, Any] = field(default_factory=dict)
 
     def to_api(self) -> dict[str, Any]:
         return asdict(self)
@@ -138,29 +155,43 @@ def _fit(
     return voice_bias, final_bias
 
 
+def loo_scores(
+    samples: Sequence[CalibrationSample], label_map: Mapping[str, Sequence[str]], weight: float
+) -> list[Scores]:
+    """Calibrated final scores for each line, from a fit that never saw that line."""
+    scores = []
+    for i, sample in enumerate(samples):
+        voice_bias, final_bias = _fit(
+            [s for j, s in enumerate(samples) if j != i], label_map, weight
+        )
+        scores.append(
+            score_utterance(
+                sample.text, sample.voice, label_map, weight, voice_bias, final_bias
+            ).final
+        )
+    return scores
+
+
+def accuracy_of(scores: Sequence[Scores], labels: Sequence[str]) -> float | None:
+    return _accuracy([_top(s) for s in scores], labels)
+
+
 def calibrate(
     samples: Sequence[CalibrationSample],
     label_map: Mapping[str, Sequence[str]],
     weight: float,
+    baseline_weight: float | None = None,
+    loo: Sequence[Scores] | None = None,
 ) -> Calibration:
+    """Fit at `weight`. "before" is measured at `baseline_weight` (the user's current
+    setting) without calibration; "after" is leave-one-out at `weight`."""
     if len(samples) < 4:
         raise CalibrationError("record at least 4 lines to calibrate")
     labels = [s.label for s in samples]
     voice_label = {e: label for label, targets in label_map.items() for e in targets}
-
-    def predict(
-        s: CalibrationSample, voice_bias: Mapping[str, float], final_bias: Mapping[str, float]
-    ) -> str | None:
-        return _top(
-            score_utterance(s.text, s.voice, label_map, weight, voice_bias, final_bias).final
-        )
-
-    loo = []
-    for i, sample in enumerate(samples):  # leave-one-out: never score a line with its own fit
-        voice_bias, final_bias = _fit(
-            [s for j, s in enumerate(samples) if j != i], label_map, weight
-        )
-        loo.append(predict(sample, voice_bias, final_bias))
+    baseline = weight if baseline_weight is None else baseline_weight
+    if loo is None:
+        loo = loo_scores(samples, label_map, weight)
     voice_bias, final_bias = _fit(samples, label_map, weight)
 
     accuracy = {
@@ -169,8 +200,10 @@ def calibrate(
         "voice": _accuracy(
             [_top(s.voice) for s in samples], [voice_label.get(y, "") for y in labels]
         ),
-        "before": _accuracy([predict(s, {}, {}) for s in samples], labels),
-        "after": _accuracy(loo, labels),
+        "before": accuracy_of(
+            [score_utterance(s.text, s.voice, label_map, baseline).final for s in samples], labels
+        ),
+        "after": accuracy_of(loo, labels),
     }
     return Calibration(
         voice_bias=voice_bias,
@@ -202,11 +235,11 @@ class CalibrationSession:
     def samples(self) -> list[CalibrationSample]:
         return [self._samples[i] for i in sorted(self._samples)]
 
-    def record(self, text: Scores, voice: Scores) -> None:
+    def record(self, text: Scores, voice: Scores, speech: SpeechStats | None = None) -> None:
         if self.done:
             return
         emotion, _ = self.prompts[self.index]
-        self._samples[self.index] = CalibrationSample(emotion, dict(text), dict(voice))
+        self._samples[self.index] = CalibrationSample(emotion, dict(text), dict(voice), speech)
         heard = _top(text) if text else None
         self.last = {"wanted": emotion, "heard": heard, "voice": _top(voice)}
         self.index += 1
@@ -248,6 +281,25 @@ def _clean_bias(raw: Any, allowed: Sequence[str]) -> dict[str, float]:
     return clean
 
 
+PROFILE_NUMBERS = ("pause_p75_ms", "pauses_measured", "speech_level", "background_level")
+
+
+def _clean_profile(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+
+    def number(v: Any) -> bool:
+        return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v)
+
+    clean: dict[str, Any] = {k: raw[k] for k in PROFILE_NUMBERS if number(raw.get(k))}
+    weights = raw.get("voice_weight_accuracy")
+    if isinstance(weights, dict):
+        clean["voice_weight_accuracy"] = {
+            str(k): v for k, v in weights.items() if number(v) and len(str(k)) <= 8
+        }
+    return clean
+
+
 class CalibrationStore:
     """data/calibration.json. Validated on load; per user, so not part of setup exports."""
 
@@ -271,6 +323,7 @@ class CalibrationStore:
                     for k, v in (raw.get("accuracy") or {}).items()
                     if k in ("text", "voice", "before", "after")
                 },
+                profile=_clean_profile(raw.get("profile")),
             )
         except (OSError, ValueError, TypeError, AttributeError):
             log.exception("Ignoring unreadable %s", self._path)

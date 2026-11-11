@@ -223,6 +223,49 @@ def test_calibration_session_end_to_end(
     assert engine.calibration is None
 
 
+def test_calibration_recommendations_can_be_applied_selectively(
+    client: TestClient, engine_holder: dict[str, FakeEngine], config: AppConfig
+) -> None:
+    from emotion_overlay.calibration import SpeechStats
+
+    engine = engine_holder["engine"]
+    client.post("/api/calibration/start")
+    # A slow speaker: long mid-sentence pauses, clear voice, quiet room.
+    slow = SpeechStats((520, 610, 580), (0.95,) * 20, (0.02,) * 10)
+    for _ in range(14):
+        wanted = client.get("/api/calibration").json()["session"]["prompt"]["emotion"]
+        engine.listener({wanted: 0.7, "neutral": 0.3}, {}, slow)
+    done = client.get("/api/calibration").json()
+    recs = {r["path"]: r for r in done["recommendations"]}
+    assert recs["vad.min_silence_ms"]["value"] == 700  # p75 + 100 ms, capped
+    assert recs["vad.min_silence_ms"]["reason"]
+    assert done["result"]["profile"]["pause_p75_ms"] > 500
+
+    # Apply only the pause recommendation.
+    saved = client.post("/api/calibration/save", json={"apply": ["vad.min_silence_ms"]}).json()
+    assert [r["path"] for r in saved["applied"]] == ["vad.min_silence_ms"]
+    assert config.vad.min_silence_ms == 700  # live: the segmenter reads this object
+    others = set(recs) - {"vad.min_silence_ms"}
+    if "state.confidence_threshold" in others:
+        assert config.state.confidence_threshold == 0.5  # untouched
+    assert client.get("/api/settings").json()["vad"]["min_silence_ms"] == 700
+
+
+def test_calibration_save_without_body_applies_nothing(
+    client: TestClient, engine_holder: dict[str, FakeEngine], config: AppConfig
+) -> None:
+    from emotion_overlay.calibration import SpeechStats
+
+    client.post("/api/calibration/start")
+    slow = SpeechStats((900,), (0.95,) * 20, (0.02,) * 10)
+    for _ in range(14):
+        wanted = client.get("/api/calibration").json()["session"]["prompt"]["emotion"]
+        engine_holder["engine"].listener({wanted: 0.7}, {}, slow)
+    saved = client.post("/api/calibration/save").json()
+    assert saved["applied"] == [] and saved["saved"] is not None
+    assert config.vad.min_silence_ms == 400
+
+
 def test_calibration_cancel_and_errors(
     client: TestClient, engine_holder: dict[str, FakeEngine]
 ) -> None:

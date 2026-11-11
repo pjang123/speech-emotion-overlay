@@ -83,6 +83,33 @@ def test_reset_discards_partial_utterance(cfg: VadConfig) -> None:
     assert seg.feed(silence(1)) == []
 
 
+def graded(frame: np.ndarray) -> float:
+    """Fake VAD that returns the frame's amplitude as its speech probability."""
+    return float(np.abs(frame).mean())
+
+
+def test_utterance_carries_speaking_pattern(cfg: VadConfig) -> None:
+    seg = UtteranceSegmenter(graded, cfg)
+    quiet = np.full(FRAME * 10, 0.05, dtype=np.float32)  # background at 0.05
+    speech_a = np.full(FRAME * 20, 0.9, dtype=np.float32)
+    pause = np.zeros(FRAME * 6, dtype=np.float32)  # 192 ms, shorter than min_silence
+    speech_b = np.full(FRAME * 20, 0.8, dtype=np.float32)
+    (utt,) = seg.feed(np.concatenate([quiet, speech_a, pause, speech_b, silence(1)]))
+    assert utt.pauses_ms == (192,)
+    assert {round(p, 2) for p in utt.speech_probs} == {0.9, 0.8}
+    assert len(utt.noise_probs) == 10 and utt.noise_probs[0] == pytest.approx(0.05)
+
+
+def test_min_silence_override_keeps_long_pause_inside_one_utterance(cfg: VadConfig) -> None:
+    audio = np.concatenate([speech(1), silence(0.6), speech(1), silence(1.5)])
+    assert len(UtteranceSegmenter(loud_is_speech, cfg).feed(audio)) == 2  # 400 ms default
+    seg = UtteranceSegmenter(loud_is_speech, cfg)
+    seg.min_silence_override_ms = 900
+    (utt,) = seg.feed(audio)
+    (pause,) = utt.pauses_ms
+    assert 550 <= pause <= 640  # 0.6 s, measured in whole 32 ms frames
+
+
 @pytest.mark.parametrize("rate", [16000, 48000, 44100, 32000])
 def test_resample_produces_16k(rate: int) -> None:
     block = np.random.default_rng(0).standard_normal(int(rate * 0.032)).astype(np.float32)
