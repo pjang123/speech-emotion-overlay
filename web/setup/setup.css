@@ -81,6 +81,24 @@ main {
   background: var(--card);
 }
 
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.card-head h2 {
+  margin: 0;
+}
+
+.card-head button {
+  padding: 4px 12px;
+  font-size: 14px;
+}
+
 .row {
   display: flex;
   flex-wrap: wrap;

@@ -29,6 +29,7 @@ from emotion_overlay.settings import (
     apply_settings,
     commit_settings,
     editable_settings,
+    reset_settings,
     validate_settings,
 )
 from emotion_overlay.state_machine import EmotionState
@@ -176,6 +177,13 @@ def create_app(
             raise HTTPException(400, str(exc)) from exc
         persist()
         hub.publish(display.refresh())  # transition, fallbacks, tiers may have changed
+        return editable_settings(config)
+
+    @app.post("/api/settings/reset")
+    def reset_all_settings() -> dict[str, Any]:
+        reset_settings(config)
+        persist()
+        hub.publish(display.refresh())
         return editable_settings(config)
 
     @app.get("/api/images")

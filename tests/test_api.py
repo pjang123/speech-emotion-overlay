@@ -208,6 +208,14 @@ def test_settings_change_is_broadcast_to_overlay(client: TestClient) -> None:
         assert ws.receive_json()["transition"] == "bounce"
 
 
+def test_settings_reset(client: TestClient) -> None:
+    client.put("/api/settings", json={"display": {"transition": "cut", "fade_ms": 900}})
+    res = client.post("/api/settings/reset")
+    assert res.status_code == 200
+    assert (res.json()["display"]["transition"], res.json()["display"]["fade_ms"]) == ("fade", 300)
+    assert client.post("/api/settings/reset", headers=EVIL_ORIGIN).status_code == 403
+
+
 def test_settings_reject_locked_and_invalid(client: TestClient) -> None:
     assert client.put("/api/settings", json={"debug": {"save_audio": True}}).status_code == 400
     bad = client.put("/api/settings", json={"display": {"fade_ms": -5}})

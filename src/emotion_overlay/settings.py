@@ -80,3 +80,8 @@ def commit_settings(config: AppConfig, validated: dict[str, BaseModel]) -> None:
 def apply_settings(config: AppConfig, patch: Any, *, strict: bool = True) -> None:
     """Validate everything first, then apply: an invalid patch changes nothing."""
     commit_settings(config, validate_settings(config, patch, strict=strict))
+
+
+def reset_settings(config: AppConfig) -> None:
+    """Restore every live-editable setting to its default; locked settings are untouched."""
+    apply_settings(config, editable_settings(AppConfig()))

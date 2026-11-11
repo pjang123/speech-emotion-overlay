@@ -366,6 +366,19 @@ function renderSettings() {
   $("settings").replaceChildren(...groups, fallbackGroup());
 }
 
+async function resetSettings() {
+  if (!confirm("Reset all settings on this page to their defaults? Your images and microphone stay as they are.")) {
+    return;
+  }
+  try {
+    ui.settings = await api("/api/settings/reset", { method: "POST" });
+    flash("settings-msg", "All settings reset to defaults.");
+  } catch (err) {
+    flash("settings-msg", err.message, true);
+  }
+  renderSettings();
+}
+
 // --- backup -------------------------------------------------------------------
 
 async function importSetup() {
@@ -471,6 +484,7 @@ async function init() {
   $("device-apply").addEventListener("click", applyDevice);
   $("device-refresh").addEventListener("click", loadDevices);
   $("listen-toggle").addEventListener("click", toggleListening);
+  $("settings-reset").addEventListener("click", resetSettings);
   $("import-btn").addEventListener("click", () => $("import-file").click());
   $("import-file").addEventListener("change", importSetup);
 

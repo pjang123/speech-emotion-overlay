@@ -1,7 +1,26 @@
 import pytest
 
 from emotion_overlay.config import AppConfig
-from emotion_overlay.settings import SettingsError, apply_settings, editable_settings
+from emotion_overlay.settings import (
+    SettingsError,
+    apply_settings,
+    editable_settings,
+    reset_settings,
+)
+
+
+def test_reset_restores_editable_defaults_only() -> None:
+    config = AppConfig()
+    state_section = config.state
+    apply_settings(
+        config, {"state": {"min_display_s": 5}, "display": {"fallbacks": {"fear": "anger"}}}
+    )
+    config.audio.device = 3  # not a live setting: must survive the reset
+    config.classifier.model = "custom/model"
+    reset_settings(config)
+    assert editable_settings(config) == editable_settings(AppConfig())
+    assert config.state is state_section
+    assert (config.audio.device, config.classifier.model) == (3, "custom/model")
 
 
 def test_updates_apply_in_place() -> None:
