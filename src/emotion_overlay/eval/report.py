@@ -111,6 +111,13 @@ def render(name: str, summary: dict[str, Any], meta: dict[str, str]) -> str:
                 ],
             ),
         ]
+        if cal.get("voice_before") is not None:
+            out += [
+                "",
+                "The voice correction on its own (voice model, 4 broad moods): "
+                f"{pct(cal['voice_before'])} → **{pct(cal['voice_after'])}** accuracy "
+                "on the same held-out clips.",
+            ]
 
     for key, groups in summary["breakdowns"].items():
         if key == "original_label":

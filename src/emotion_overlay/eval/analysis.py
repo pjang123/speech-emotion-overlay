@@ -17,7 +17,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from emotion_overlay.calibration import CalibrationSample, calibrate
-from emotion_overlay.classify.fusion import map_voice_scores, score_utterance
+from emotion_overlay.classify.fusion import apply_bias, map_voice_scores, score_utterance
 from emotion_overlay.emotions import EMOTIONS, NEUTRAL
 from emotion_overlay.eval.metrics import (
     accuracy,
@@ -50,7 +50,7 @@ def predict(
     if mode == "text":
         return _top(text)  # no words heard -> neutral, as the live app would show
     if mode == "voice":
-        return _top(map_voice_scores(voice, label_map, {}))
+        return _top(map_voice_scores(apply_bias(voice, voice_bias or {}), label_map, {}))
     breakdown = score_utterance(text, voice, label_map, weight, voice_bias, final_bias)
     return _top(breakdown.final)
 
@@ -127,9 +127,14 @@ def calibration_simulation(
     for r in records:
         by_speaker[r["speaker"]].append(r)
 
+    voice_label = {e: label for label, targets in label_map.items() for e in targets}
     y_true: list[str] = []
     before: list[str] = []
     after: list[str] = []
+    # The voice correction on its own, judged in the voice model's 4 coarse moods.
+    voice_true: list[str] = []
+    voice_before: list[str] = []
+    voice_after: list[str] = []
     speakers = 0
     for clips in by_speaker.values():
         by_label: dict[str, list[Record]] = defaultdict(list)
@@ -150,12 +155,18 @@ def calibration_simulation(
             after.append(
                 predict(r, "fused", label_map, weight, fitted.voice_bias, fitted.final_bias)
             )
+            if r["voice"] and r["label"] in voice_label:
+                voice_true.append(voice_label[r["label"]])
+                voice_before.append(_top(r["voice"]))
+                voice_after.append(_top(apply_bias(r["voice"], fitted.voice_bias)))
     if not speakers:
         return None
     classes = [c for c in EMOTIONS if c in y_true]
     return {
         "speakers": speakers,
         "test_clips": len(y_true),
+        "voice_before": accuracy(voice_true, voice_before) if voice_true else None,
+        "voice_after": accuracy(voice_true, voice_after) if voice_true else None,
         "before": {
             "accuracy": accuracy(y_true, before),
             "macro_f1": macro_f1(y_true, before, classes),

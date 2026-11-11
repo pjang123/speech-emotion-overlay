@@ -5,12 +5,15 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 ## Status
 - Phase 1 (pipeline MVP) built and verified by the user on real mic + overlay (2026-11-12).
 - Phase 2 (stability rules, rotation, tiers, transitions, live settings, zip backup) built and used by the user. Added on request: Stop/Start listening, settings reset.
-- Phase 3 (voice emotion model superb/hubert-base-superb-er, late fusion, label_map, calibration) built; awaiting user hardware check. Phase 4 (evaluation script, datasets, README results) next. Wait for user approval between phases.
+- Phase 3 (voice emotion model superb/hubert-base-superb-er, late fusion, label_map, calibration) built. User's own calibration: words 79%, voice 36%, combined 79% before/after.
+- Phase 4 (eval tooling, RAVDESS results, README) done. Pending from the user: own recordings (`eval record` + `eval run mine`) and a demo GIF for the README.
+- Key results (RAVDESS, see eval/results/ravdess/report.md): voice model answers "ang" for 79% of clips (domain shift; level normalisation and resampling ruled out); CV-best voice weight 0.6 there, but default stays 0.25 because real speech carries emotion in words. Latency median 712 ms / p95 868 ms (faster-whisper, CPU).
 - User decision: the image should change freely with every sentence. Anti-flicker rules exist but default OFF; don't turn them on by default.
 
 ## Commands
 - Install: `uv sync` (or `pip install -r requirements.txt`; regenerate with `uv export --no-hashes --no-dev -o requirements.txt`)
 - Run: `uv run python -m emotion_overlay` (setup at http://127.0.0.1:8765/setup, overlay at /overlay). `--no-audio` for UI only, `--log-level DEBUG` to audit network calls.
+- Evaluate: `uv run python -m emotion_overlay.eval {download ravdess | record | run ravdess|mine | report ravdess|mine}`; pass `--config config.example.yaml` for reproducible (default) settings
 - Test: `uv run python -m pytest` (NOT `uv run pytest`: Smart App Control blocks the pytest.exe shim on the dev machine)
 - Lint/format: `uv run ruff check .` / `uv run ruff format .`
 

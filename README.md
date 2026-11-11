@@ -4,7 +4,7 @@ Listens to your microphone, works out the emotion in what you're saying, and sho
 
 Everything runs locally. Audio never leaves your machine.
 
-> **Status:** Phase 3 (accuracy). Measured accuracy and latency on public datasets come next. See [SPEC.md](SPEC.md).
+> **Status:** feature-complete (phases 1–4 of [SPEC.md](SPEC.md)), with measured accuracy and latency below. Built as a portfolio project: the README covers design decisions, [privacy](#privacy), [security](#security) and [honest results](#evaluation).
 
 ## Features
 
@@ -19,12 +19,22 @@ Everything runs locally. Audio never leaves your machine.
 
 ## How it works
 
+```mermaid
+flowchart LR
+    mic[Microphone<br/>sounddevice] --> vad[Silero VAD<br/>utterances]
+    vad --> asr[Whisper<br/>speech to text]
+    asr --> text[Text emotion model<br/>7 emotions]
+    vad --> voice[Voice emotion model<br/>4 moods, in parallel]
+    text --> fusion[Fusion + per-user<br/>calibration]
+    voice --> fusion
+    fusion --> sm[State machine<br/>threshold, silence,<br/>opt-in anti-flicker]
+    sm --> picker[Image picker<br/>tiers, rotation, fallbacks]
+    picker --> ws{{WebSocket<br/>127.0.0.1 only}}
+    ws --> overlay[Overlay page<br/>OBS Browser Source]
+    ws --> setup[Setup page<br/>images, settings, debug]
 ```
-                ┌─▶ Whisper ─▶ text emotion model ─┐ (7 emotions)
-mic ─▶ Silero ──┤                                   ├─▶ fusion + ─▶ state ─▶ image ─▶ WebSocket ─▶ overlay (OBS)
-       VAD      └─▶ voice emotion model ───────────┘  calibration   machine   picker               setup page
-    (utterances)    (4 moods, runs in parallel)
-```
+
+Everything in this diagram runs on your PC. The overlay only ever receives "show this image"; transcripts and scores go only to the setup page.
 
 - **Voice activity detection** ([Silero VAD](https://github.com/snakers4/silero-vad)) splits audio into utterances. One ends after a 400 ms pause. Long speech is cut every 6 s so the image still updates mid-rant.
 - **Speech-to-text:** Whisper `base.en` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), or via 🤗 transformers when faster-whisper can't load (see [Windows notes](#windows-notes)).
@@ -84,6 +94,50 @@ URL options: `?fit=cover` fills the source and crops instead of letterboxing. `?
 | `--no-audio` | Serve the web UI without loading models or opening the mic. |
 | `--log-level DEBUG` | Verbose logs, including any HTTP requests (useful to verify the privacy claims below). |
 
+## Evaluation
+
+### RAVDESS (public dataset)
+
+[RAVDESS](https://zenodo.org/records/1188976) has 1,440 speech clips from 24 actors. **Every clip is one of two emotionally neutral sentences** ("Kids are talking by the door"), each said in 8 emotions, so it isolates how much the *voice* model contributes. "Calm" is mapped to neutral. The full report, with per-emotion precision/recall/F1, confusion matrices and breakdowns, is in [`eval/results/ravdess/report.md`](eval/results/ravdess/report.md).
+
+| Mode | Accuracy | Macro-F1 |
+|---|---|---|
+| Always say "neutral" (majority baseline) | 20.0% | — |
+| Words only | 21.9% | 7.9% |
+| Voice only | 21.4% | 11.9% |
+| Combined, app default (voice weight 0.25) | 22.2% | 8.5% |
+| Combined, voice weight 0.6 (chosen on other speakers) | **30.1%** | **17.4%** |
+| Combined + per-speaker calibration (weight 0.25) | 25.6% | 12.0% |
+
+Chance is 14.3% across 7 emotions. What the numbers show:
+
+- **The words carry nothing here, by design.** The text model says "neutral" for almost every clip, so it barely beats the majority baseline. One small signal leaks through: when Whisper hears a rising voice it writes a "?", and the text model reads that as surprise. That happened on 16 clips, and 14 of them really were surprise.
+- **The voice model doesn't transfer to this dataset.** It scores about 65% on 4-class IEMOCAP, the dataset it was trained on (per the SUPERB benchmark), but here it answers "ang" for 79% of all clips. I ruled out the two likeliest preprocessing causes with experiments on a balanced sample: loudness normalisation made it worse, and a proper anti-aliased resampler changed nothing (30.6% vs 31.2%). This is domain shift between recording setups and actors.
+- **Fusion helps only when the voice is weighted heavily.** Raising the voice weight to 0.6 adds about 8 points. That held when the weight was picked on half the speakers and tested on the other half (both splits chose 0.6). The app still defaults to 0.25, because in real use the words usually do carry the emotion. That was 79% words-only vs 36% voice-only in the developer's own 14-line calibration.
+- **Calibration helps a little but can't fix domain shift.** Fitting on 2 clips per emotion per speaker and testing on the rest gives +1.7 points accuracy and +3 points macro-F1.
+- **Acted datasets overestimate real-world accuracy.** Actors exaggerate emotions far more than streamers talking naturally do. Even on acted speech, an off-the-shelf voice model is weak here, so treat the voice feature as a light nudge, not a detector.
+
+### Latency
+
+Measured from the end of speech to a new emotion being decided, over all 1,440 clips. Hardware: Ryzen (AMD Family 25), 16 threads, CPU only, faster-whisper `base.en`.
+
+| Median | p90 | p95 | Max | Target |
+|---|---|---|---|---|
+| 712 ms | 840 ms | 868 ms | 1,022 ms | < 2,000 ms |
+
+That's the 400 ms pause that ends a sentence, plus processing: speech-to-text (284 ms) and the voice model (301 ms) in parallel, then the text model (20 ms). The overlay's fade (300 ms by default) comes on top. With the transformers fallback for Whisper, add roughly 0.1–0.9 s.
+
+### Reproduce
+
+```sh
+uv run python -m emotion_overlay.eval download ravdess          # 208 MB, checksum-verified
+uv run python -m emotion_overlay.eval --config config.example.yaml run ravdess   # ~10 min on CPU
+```
+
+Raw model outputs are cached in `predictions.jsonl` (not committed), so `... eval report ravdess` re-analyses them in seconds. RAVDESS is © Livingstone & Russo 2018 under CC BY-NC-SA 4.0; its audio is downloaded on demand and never committed.
+
+To test with **your own voice**, run `uv run python -m emotion_overlay.eval record`. It prompts 28 lines: for each emotion, two whose words are emotional and two neutral sentences said with the emotion. Then run `... eval run mine`. The report breaks the results down by line type, which shows directly when the words help and when only the voice can. The recordings stay in `data/recordings/` on your machine.
+
 ## Privacy
 
 - **Audio stays in memory.** Utterances are processed and discarded. Nothing is written to disk unless you turn on `debug.save_audio` or `debug.save_transcripts`.
@@ -109,7 +163,7 @@ The server binds to `127.0.0.1`, so other computers can't reach it. Web pages op
 
 ## Windows notes
 
-**Smart App Control** blocks CTranslate2's native library, which faster-whisper depends on. Instead of asking you to turn off an OS security feature, `asr.backend: auto` detects this and falls back to running Whisper through transformers/PyTorch. On the development machine, the transformers backend measured 0.4–1.2 s per utterance on CPU; the variation depends on what else is using the CPU. The setup page shows which backend is active.
+**Smart App Control** can block CTranslate2's native library, which faster-whisper depends on. On the development machine it was blocked at first and allowed later, presumably once the file had built up reputation. Instead of asking you to turn off an OS security feature, `asr.backend: auto` detects a block and falls back to running Whisper through transformers/PyTorch, which Windows allows. That fallback measured 0.4–1.2 s per utterance on CPU, against roughly 0.3 s for faster-whisper. The setup page shows which backend is active.
 
 ## Development
 
@@ -123,7 +177,7 @@ uv run ruff format .        # format
 
 ## Known limitations
 
-- **The voice model is coarse:** it only knows 4 moods, it was trained on acted English speech, and it can be skewed by a particular mic. It's weighted low by default, and calibration exists to correct the skew. How much it actually helps will be measured in Phase 4.
+- **The voice model is weak outside its training data:** it only knows 4 moods, and on RAVDESS it leans heavily toward "angry" (see [Evaluation](#evaluation)). It's weighted low by default. A stronger or fine-tuned voice model is the clearest next step, and the `audio_emotion.model` and `label_map` settings exist so one can be swapped in.
 - **Calibration is small:** 14 lines can only nudge the models, not retrain them. It's fitted at the voice weight in use at the time, so recalibrate if you change that weight a lot.
 - **English only** for now. The language is a config value, not hard-coded, but the default emotion model is English.
 - **Microphone by index:** if you plug in or remove audio devices, re-select your mic on the setup page.
