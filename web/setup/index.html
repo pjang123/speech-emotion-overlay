@@ -64,7 +64,7 @@
       <p class="hint">Show a special image for a few seconds when you say a word or phrase, like "gg" or "let's go". Matching ignores capitals and only counts whole words, so "gg" won't fire on "eggs". Separate alternatives with commas. If a word doesn't fire, check how it's spelled in the Live panel's transcript. Put trigger images in <strong>Word triggers only</strong> above so they never appear for emotions.</p>
       <div class="trigger-form">
         <input id="trigger-phrases" type="text" maxlength="400" placeholder="gg, good game" aria-label="Words or phrases">
-        <select id="trigger-image" aria-label="Image to show"></select>
+        <div id="trigger-image" aria-label="Image to show"></div>
         <label class="inline">for <input id="trigger-duration" type="number" min="0.5" max="60" step="0.5" value="3"> s</label>
         <button id="trigger-add">Add trigger</button>
       </div>

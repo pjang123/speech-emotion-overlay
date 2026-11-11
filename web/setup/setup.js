@@ -9,6 +9,7 @@ const ui = {
   emotions: [],
   imageGroups: [],
   triggers: [],
+  newTriggerImage: null,
   images: [],
   defaultImage: null,
   maxBytes: 10 * 1024 * 1024,
@@ -169,26 +170,91 @@ async function loadTriggers() {
   renderTriggers();
 }
 
-const imageLabel = (img) => `${img.original_name} (${GROUP_LABELS[img.emotion] ?? img.emotion})`;
+// A dropdown that shows a small preview of each image or GIF next to its name
+// (a native <select> can't show images). Trigger-only images are listed first.
+function imagePicker(selectedId, onPick, { compact = false } = {}) {
+  const groupOrder = (img) => (img.emotion === "trigger" ? -1 : ui.imageGroups.indexOf(img.emotion));
+  const images = [...ui.images].sort((a, b) => groupOrder(a) - groupOrder(b));
+  const current = images.find((img) => img.id === selectedId);
 
-function renderTriggerImageOptions() {
-  const select = $("trigger-image");
-  const current = select.value;
-  // Trigger-only images first, since that's what they're for.
-  const images = [...ui.images].sort((a, b) => (b.emotion === "trigger") - (a.emotion === "trigger"));
-  select.replaceChildren(
-    ...(images.length
-      ? images.map((img) => el("option", { value: img.id, textContent: imageLabel(img) }))
-      : [el("option", { value: "", textContent: "Upload an image first" })]),
+  const toggle = el(
+    "button",
+    {
+      type: "button",
+      className: `picker-toggle${compact ? " compact" : ""}`,
+      title: current ? `${current.original_name} (click to change)` : "Choose an image",
+    },
+    current ? el("img", { src: current.url, alt: "" }) : el("span", { className: "picker-blank" }),
+    ...(compact
+      ? []
+      : [el("span", { className: "picker-name", textContent: current?.original_name ?? "Choose an image…" })]),
+    el("span", { className: "picker-caret", textContent: "▾" }),
   );
-  if (images.some((img) => img.id === current)) select.value = current;
+  toggle.setAttribute("aria-haspopup", "listbox");
+
+  const menu = el("div", { className: "picker-menu", hidden: true });
+  menu.setAttribute("role", "listbox");
+  if (!images.length) {
+    menu.append(el("p", { className: "muted small", textContent: "Upload an image first." }));
+  }
+  let group = null;
+  for (const img of images) {
+    if (img.emotion !== group) {
+      group = img.emotion;
+      menu.append(el("div", { className: "picker-group", textContent: GROUP_LABELS[group] ?? group }));
+    }
+    const option = el(
+      "button",
+      { type: "button", className: `picker-option${img.id === selectedId ? " selected" : ""}`, title: img.original_name },
+      el("img", { src: img.url, alt: "", loading: "lazy" }),
+      el("span", { textContent: img.original_name }),
+    );
+    option.setAttribute("role", "option");
+    option.addEventListener("click", () => {
+      close();
+      onPick(img.id);
+    });
+    menu.append(option);
+  }
+
+  const wrap = el("div", { className: "picker" }, toggle, menu);
+  const outside = (e) => !wrap.contains(e.target) && close();
+  function close() {
+    menu.hidden = true;
+    document.removeEventListener("click", outside, true);
+  }
+  toggle.addEventListener("click", () => {
+    if (!menu.hidden) return close();
+    menu.hidden = false;
+    document.addEventListener("click", outside, true);
+    menu.querySelector(".selected, .picker-option")?.focus();
+  });
+  wrap.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      close();
+      toggle.focus();
+    }
+  });
+  return wrap;
+}
+
+function renderNewTriggerPicker() {
+  // Keep the choice if it still exists; otherwise default to the first trigger-only image.
+  if (!ui.images.some((img) => img.id === ui.newTriggerImage)) {
+    const preferred = ui.images.find((img) => img.emotion === "trigger") ?? ui.images[0];
+    ui.newTriggerImage = preferred?.id ?? null;
+  }
+  $("trigger-image").replaceChildren(
+    imagePicker(ui.newTriggerImage, (id) => {
+      ui.newTriggerImage = id;
+      renderNewTriggerPicker();
+    }),
+  );
 }
 
 function renderTriggers() {
-  renderTriggerImageOptions();
-  const byId = Object.fromEntries(ui.images.map((img) => [img.id, img]));
+  renderNewTriggerPicker();
   const rows = ui.triggers.map((t) => {
-    const img = byId[t.image_id];
     const duration = el("input", { type: "number", min: 0.5, max: 60, step: 0.5, value: t.duration_s });
     duration.addEventListener("change", () => updateTrigger(t.id, { duration_s: Number(duration.value) }));
     const remove = el("button", { className: "icon danger", title: "Delete trigger", textContent: "✕" });
@@ -196,7 +262,7 @@ function renderTriggers() {
     return el(
       "div",
       { className: "trigger-row" },
-      img ? el("img", { className: "trigger-thumb", src: img.url, alt: img.original_name }) : el("span"),
+      imagePicker(t.image_id, (id) => updateTrigger(t.id, { image_id: id }), { compact: true }),
       el("span", { className: "trigger-phrases", textContent: t.phrases.map((p) => `“${p}”`).join(", ") }),
       el("label", { className: "inline", title: "Seconds to show the image" }, duration, " s"),
       button("Test", () => testTrigger(t.id)),
@@ -211,7 +277,7 @@ function renderTriggers() {
 async function addTrigger() {
   const body = {
     phrases: $("trigger-phrases").value,
-    image_id: $("trigger-image").value,
+    image_id: ui.newTriggerImage,
     duration_s: Number($("trigger-duration").value) || 3,
   };
   try {
@@ -348,12 +414,32 @@ function thumbnail(img) {
   tier.addEventListener("change", () => updateImage(img.id, { tier: tier.value }));
   tier.hidden = img.emotion === "trigger"; // tiers only apply to emotion images
 
+  // Editable name, so links that all arrive as "giphy.gif" can be told apart.
+  const name = el("input", {
+    type: "text",
+    className: "thumb-name",
+    value: img.original_name,
+    maxLength: 120,
+    title: "Rename (press Enter)",
+  });
+  name.setAttribute("aria-label", "Image name");
+  name.addEventListener("keydown", (e) => e.key === "Enter" && name.blur());
+  name.addEventListener("change", () => {
+    const value = name.value.trim();
+    if (!value) {
+      name.value = img.original_name;
+      return;
+    }
+    if (value !== img.original_name) updateImage(img.id, { original_name: value });
+  });
+
   return el(
     "figure",
     { className: `thumb${isDefault ? " default" : ""}` },
     el("img", { src: img.url, alt: img.original_name, title: img.original_name, loading: "lazy" }),
     ...(img.format === "GIF" ? [el("span", { className: "badge", textContent: "GIF" })] : []),
     tier,
+    name,
     el("div", { className: "thumb-actions" }, star, remove),
   );
 }

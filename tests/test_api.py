@@ -356,6 +356,15 @@ def test_upload_with_tier_and_update(client: TestClient) -> None:
     assert client.put("/api/images/" + "0" * 32, json={"tier": "mild"}).status_code == 404
 
 
+def test_rename_image_via_api(client: TestClient) -> None:
+    image = upload(client).json()
+    res = client.put(f"/api/images/{image['id']}", json={"original_name": "gg dance"})
+    assert res.status_code == 200 and res.json()["original_name"] == "gg dance"
+    assert client.put(f"/api/images/{image['id']}", json={"original_name": " "}).status_code == 400
+    too_long = {"original_name": "x" * 500}
+    assert client.put(f"/api/images/{image['id']}", json=too_long).status_code == 422
+
+
 def test_default_route_is_not_shadowed_by_image_update(client: TestClient) -> None:
     image = upload(client).json()
     res = client.put("/api/images/default", json={"image_id": image["id"]})

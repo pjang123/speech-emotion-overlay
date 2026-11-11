@@ -20,6 +20,7 @@ so a DNS server answering differently within milliseconds could slip past it.
 """
 
 import ipaddress
+import re
 import socket
 import urllib.error
 import urllib.request
@@ -158,7 +159,31 @@ def fetch_image(
         found = page_image(data.decode("utf-8", errors="replace"), final_url)
         if not found:
             raise FetchError("that page has no image to take; try 'Copy image address' instead")
-        return fetch_image(found, max_bytes, check_host, _follow_page=False)
+        image, file_name = fetch_image(found, max_bytes, check_host, _follow_page=False)
+        # The page link usually says what the GIF is; the media file is "giphy.gif".
+        return image, name_from_page(final_url, file_name)
 
     name = unquote(PurePosixPath(urlsplit(final_url).path).name) or "image"
     return data, name
+
+
+_TENOR_ID = re.compile(r"-gif-\d+$")
+# Giphy ids are 10+ characters with capitals or digits, so a long final word like
+# "celebration" isn't mistaken for one.
+_GIPHY_ID = re.compile(r"(^|-)(?=[a-z]*[A-Z0-9])[A-Za-z0-9]{10,}$")
+
+
+def name_from_page(page_url: str, file_name: str) -> str:
+    """'tenor.com/view/happy-dance-gif-123' -> 'happy dance.gif';
+    'giphy.com/gifs/thank-you-BYoRqTmcgzHcL9TCy1' -> 'thank you.gif'."""
+    slug = unquote(PurePosixPath(urlsplit(page_url).path).name)
+    slug = _GIPHY_ID.sub("", _TENOR_ID.sub("", slug))
+    words = ""
+    for word in slug.replace("-", " ").replace("_", " ").split():
+        if len(words) + len(word) + 1 > 60:  # keep whole words; slugs can be very long
+            break
+        words = f"{words} {word}".strip()
+    if not re.search(r"[A-Za-z]", words):
+        return file_name
+    extension = PurePosixPath(file_name).suffix or ".gif"
+    return f"{words}{extension}"

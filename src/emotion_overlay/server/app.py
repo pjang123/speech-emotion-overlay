@@ -12,7 +12,7 @@ from typing import Annotated, Any, Protocol
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
 from emotion_overlay.audio.capture import InputDevice, list_input_devices
@@ -75,6 +75,7 @@ class DefaultImageRequest(BaseModel):
 class ImageUpdateRequest(BaseModel):
     emotion: str | None = None
     tier: str | None = None
+    original_name: str | None = Field(None, max_length=200)  # rename (display only)
 
 
 class ImageFromUrlRequest(BaseModel):
@@ -315,7 +316,9 @@ def create_app(
     @app.put("/api/images/{image_id}")
     def update_image(image_id: str, body: ImageUpdateRequest) -> dict[str, Any]:
         try:
-            record = store.update(image_id, emotion=body.emotion, tier=body.tier)
+            record = store.update(
+                image_id, emotion=body.emotion, tier=body.tier, name=body.original_name
+            )
         except KeyError as exc:
             raise HTTPException(404, "Image not found") from exc
         except ImageValidationError as exc:

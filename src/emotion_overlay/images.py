@@ -163,13 +163,27 @@ class ImageStore:
         return record
 
     def update(
-        self, image_id: str, *, emotion: str | None = None, tier: str | None = None
+        self,
+        image_id: str,
+        *,
+        emotion: str | None = None,
+        tier: str | None = None,
+        name: str | None = None,
     ) -> ImageRecord:
         with self._lock:
             record = self.get(image_id)
             if record is None:
                 raise KeyError(image_id)
-            updated = replace(record, emotion=emotion or record.emotion, tier=tier or record.tier)
+            if name is not None and not _CONTROL_RE.sub("", name).strip():
+                raise ImageValidationError("the name can't be empty")
+            updated = replace(
+                record,
+                emotion=emotion or record.emotion,
+                tier=tier or record.tier,
+                original_name=clean_display_name(name)
+                if name is not None
+                else record.original_name,
+            )
             _check_labels(updated.emotion, updated.tier)
             self._records[record.id] = updated
             self._save()
