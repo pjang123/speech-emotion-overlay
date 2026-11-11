@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Emotion Overlay Setup</title>
+  <link rel="stylesheet" href="/static/setup/setup.css">
+  <script type="module" src="/static/setup/setup.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Emotion Overlay</h1>
+    <span id="conn" class="pill">connecting…</span>
+    <span id="engine" class="pill"></span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Microphone</h2>
+      <p class="hint">Pick the mic you talk into. A dedicated input (not "Stereo Mix" or a desktop-audio device) keeps game audio out.</p>
+      <div class="row">
+        <select id="device" aria-label="Input device"></select>
+        <button id="device-apply">Use this mic</button>
+        <button id="device-refresh" class="secondary">Refresh list</button>
+      </div>
+      <p id="device-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <h2>Live</h2>
+      <div class="live">
+        <div class="preview">
+          <img id="preview-img" alt="Current overlay image">
+          <span id="preview-empty">No image for this emotion yet</span>
+        </div>
+        <div class="live-info">
+          <p><span id="speaking" class="dot"></span> <span id="speaking-label">Silent</span></p>
+          <p class="current">
+            <span id="emotion">neutral</span>
+            <span id="confidence" class="muted"></span>
+            <span id="reason" class="tag"></span>
+          </p>
+          <div id="scores" class="scores"></div>
+          <p class="label">Last transcript</p>
+          <p id="transcript" class="mono">—</p>
+          <p class="label">Classified window</p>
+          <p id="window" class="mono muted">—</p>
+          <p id="timings" class="mono muted small"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Images</h2>
+      <p class="hint" id="image-hint">Add images per emotion (click "Add" or drop files on a box). When an emotion has several images, one is picked at random each time it starts. Click ★ to mark the default image: it is shown for any emotion that has no images.</p>
+      <p id="image-msg" class="msg"></p>
+      <div id="emotions" class="emotions"></div>
+    </section>
+
+    <section class="card">
+      <h2>Add to OBS</h2>
+      <ol class="steps">
+        <li>In OBS, add a <strong>Browser</strong> source.</li>
+        <li>Set the URL to the address below. Set width and height to your image size (e.g. 800 × 800).</li>
+        <li>Leave custom CSS empty. The background is already transparent.</li>
+        <li>Keep this program running while you stream.</li>
+      </ol>
+      <div class="row">
+        <code id="overlay-url"></code>
+        <button id="copy-url" class="secondary">Copy</button>
+        <a id="open-overlay" href="/overlay" target="_blank" rel="noopener">Open in new tab</a>
+      </div>
+      <p class="hint">Options: add <code>?fit=cover</code> to fill the source and crop, or <code>?label=1</code> to show the emotion name (handy for testing).</p>
+    </section>
+  </main>
+</body>
+</html>

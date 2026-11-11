@@ -1,0 +1,216 @@
+"""FastAPI app: setup page, overlay page, REST API and the /ws event stream."""
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from dataclasses import asdict
+from pathlib import Path
+from typing import Annotated, Any, Protocol
+
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from starlette.websockets import WebSocketDisconnect
+
+from emotion_overlay.audio.capture import InputDevice, list_input_devices
+from emotion_overlay.config import AppConfig, save_config
+from emotion_overlay.emotions import EMOTIONS, NEUTRAL
+from emotion_overlay.images import FORMATS, ImageStore, ImageValidationError
+from emotion_overlay.pipeline import PipelineEvents
+from emotion_overlay.server.display import DisplayState
+from emotion_overlay.server.hub import Hub
+from emotion_overlay.server.security import install_security
+from emotion_overlay.state_machine import EmotionState
+
+log = logging.getLogger(__name__)
+
+WEB_DIR = Path(__file__).resolve().parents[3] / "web"
+
+
+class AudioEngine(Protocol):
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def set_device(self, device: int | None) -> None: ...
+    def status(self) -> dict[str, Any]: ...
+
+
+class DeviceRequest(BaseModel):
+    device: int | None
+
+
+class DefaultImageRequest(BaseModel):
+    image_id: str | None
+
+
+def create_app(
+    config: AppConfig,
+    *,
+    config_path: Path | None = None,
+    engine_factory: Callable[[PipelineEvents], AudioEngine] | None = None,
+    device_lister: Callable[[], list[InputDevice]] = list_input_devices,
+) -> FastAPI:
+    store = ImageStore(config.data_dir, config.uploads.max_bytes, config.uploads.max_pixels)
+    hub = Hub()
+    display = DisplayState(store, config.display)
+    hub.publish(display.message())
+
+    def on_state(state: EmotionState) -> None:
+        hub.publish(display.apply(state))
+
+    engine = (
+        engine_factory(PipelineEvents(on_state=on_state, on_message=hub.publish))
+        if engine_factory
+        else None
+    )
+    if engine is None:
+        hub.publish({"type": "status", "state": "disabled", "message": "Audio disabled"})
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        hub.bind_loop(asyncio.get_running_loop())
+        if engine:
+            engine.start()
+        try:
+            yield
+        finally:
+            if engine:
+                engine.stop()
+
+    app = FastAPI(
+        title="Emotion Overlay", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
+    )
+    install_security(app, config.server)
+    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+
+    # --- pages ------------------------------------------------------------
+
+    @app.get("/", include_in_schema=False)
+    def index() -> RedirectResponse:
+        return RedirectResponse("/setup")
+
+    @app.get("/setup", include_in_schema=False)
+    def setup_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "setup" / "index.html")
+
+    @app.get("/overlay", include_in_schema=False)
+    def overlay_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "overlay" / "index.html")
+
+    # --- api --------------------------------------------------------------
+
+    @app.get("/api/emotions")
+    def emotions() -> dict[str, Any]:
+        return {"emotions": list(EMOTIONS), "neutral": NEUTRAL}
+
+    @app.get("/api/status")
+    def status() -> dict[str, Any]:
+        return {
+            "engine": engine.status() if engine else hub.latest("status"),
+            "state": display.message(),
+        }
+
+    @app.get("/api/config")
+    def get_config() -> dict[str, Any]:
+        return config.model_dump(mode="json")
+
+    @app.get("/api/devices")
+    def devices() -> dict[str, Any]:
+        try:
+            found = device_lister()
+        except Exception as exc:
+            log.exception("Could not list audio devices")
+            raise HTTPException(503, f"Could not list audio devices: {exc}") from exc
+        return {"devices": [asdict(d) for d in found], "selected": config.audio.device}
+
+    @app.put("/api/device")
+    def set_device(body: DeviceRequest) -> dict[str, Any]:
+        if body.device is not None and body.device not in {d.index for d in device_lister()}:
+            raise HTTPException(400, "Unknown input device")
+        config.audio.device = body.device
+        if engine:
+            engine.set_device(body.device)
+        if config_path:
+            save_config(config, config_path)
+        return {"selected": body.device, "engine": engine.status() if engine else None}
+
+    @app.get("/api/images")
+    def list_images() -> dict[str, Any]:
+        return {
+            "images": [r.to_api() for r in store.all()],
+            "default_image": store.default_id,
+            "max_bytes": config.uploads.max_bytes,
+            "formats": [mime for _, mime in FORMATS.values()],
+        }
+
+    @app.post("/api/images", status_code=201)
+    async def upload_image(
+        emotion: Annotated[str, Form()], file: Annotated[UploadFile, File()]
+    ) -> dict[str, Any]:
+        # Read one byte past the limit so oversize files are detected without
+        # holding an arbitrarily large upload in memory.
+        data = await file.read(config.uploads.max_bytes + 1)
+        try:
+            record = await asyncio.to_thread(store.add, data, emotion, file.filename)
+        except ImageValidationError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        hub.publish(display.refresh())
+        return record.to_api()
+
+    @app.delete("/api/images/{image_id}", status_code=204)
+    def delete_image(image_id: str) -> Response:
+        if not store.remove(image_id):
+            raise HTTPException(404, "Image not found")
+        hub.publish(display.refresh())
+        return Response(status_code=204)
+
+    @app.put("/api/images/default")
+    def set_default_image(body: DefaultImageRequest) -> dict[str, Any]:
+        try:
+            store.set_default(body.image_id)
+        except KeyError as exc:
+            raise HTTPException(404, "Image not found") from exc
+        hub.publish(display.refresh())
+        return {"default_image": store.default_id}
+
+    @app.get("/images/{image_id}", include_in_schema=False)
+    def serve_image(image_id: str) -> FileResponse:
+        record = store.get(image_id)
+        if record is None:
+            raise HTTPException(404, "Image not found")
+        # IDs are never reused, so the browser (and OBS) can cache aggressively.
+        return FileResponse(
+            store.path(record),
+            media_type=record.content_type,
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+        )
+
+    # --- websocket --------------------------------------------------------
+
+    @app.websocket("/ws")
+    async def events(websocket: WebSocket) -> None:
+        include_debug = websocket.query_params.get("debug") == "1"
+        await websocket.accept()
+        queue, snapshot = hub.subscribe(include_debug)
+
+        async def pump() -> None:
+            for message in snapshot:
+                await websocket.send_json(message)
+            while True:
+                await websocket.send_json(await queue.get())
+
+        sender = asyncio.create_task(pump())
+        try:
+            while True:  # we never expect input; this just detects disconnects
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            sender.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await sender
+            hub.unsubscribe(queue)
+
+    return app

@@ -1,0 +1,38 @@
+/* Transparent so OBS composites only the image. */
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.layer.cover {
+  object-fit: cover;
+}
+
+.layer.visible {
+  opacity: 1;
+}
+
+#label {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font: 600 14px/1.4 system-ui, sans-serif;
+  color: #fff;
+  background: rgb(0 0 0 / 60%);
+}

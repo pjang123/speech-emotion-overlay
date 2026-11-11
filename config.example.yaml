@@ -1,0 +1,51 @@
+# Copy to config.yaml to customise. Every key is optional; missing keys use these defaults.
+# The setup page writes config.yaml when you pick a microphone.
+
+audio:
+  device: null            # input device index from the setup page; null = system default
+
+vad:                      # Silero voice activity detection
+  threshold: 0.5          # speech probability needed to start an utterance
+  min_silence_ms: 400     # pause length that ends an utterance
+  speech_pad_ms: 150      # audio kept before speech starts so first words aren't clipped
+  min_utterance_ms: 250   # ignore shorter blips (coughs, clicks)
+  max_utterance_s: 6.0    # long speech is cut into chunks so the image still updates
+
+asr:                      # Whisper speech-to-text
+  backend: auto           # auto | faster-whisper | transformers
+                          # auto tries faster-whisper (fastest) and falls back to transformers,
+                          # e.g. when Windows Smart App Control blocks CTranslate2
+  model: base.en         # tiny.en | base.en | small.en | small | ... (bigger = slower, more accurate)
+  device: cpu             # cpu | cuda | auto (auto tries GPU, falls back to CPU)
+  compute_type: int8
+  language: en            # null = auto-detect (needs a multilingual model, not *.en)
+  beam_size: 1
+  no_speech_threshold: 0.6  # drop segments Whisper thinks are not speech (reduces hallucinations)
+
+classifier:
+  model: j-hartmann/emotion-english-distilroberta-base
+  device: cpu             # cpu | cuda | auto
+  window_seconds: 6.0     # classify the transcript from the last N seconds; 0 = latest utterance only
+
+state:
+  confidence_threshold: 0.5
+  low_confidence: hold    # hold = keep current image, neutral = fall back to neutral
+  silence_timeout_s: 3.0  # return to neutral after this much silence
+
+display:
+  fade_ms: 300
+  fallbacks: {}           # e.g. {disgust: anger, fear: surprise}; otherwise missing emotions show the default image
+
+uploads:
+  max_bytes: 10485760     # 10 MB
+  max_pixels: 16777216    # 4096 x 4096
+
+server:
+  host: 127.0.0.1         # keep on localhost; nothing here is meant to be exposed to a network
+  port: 8765
+
+debug:                    # privacy: both off by default; nothing is written to disk unless enabled
+  save_audio: false       # writes each utterance as WAV to data/debug/
+  save_transcripts: false # appends transcripts to data/debug/transcripts.log
+
+data_dir: data

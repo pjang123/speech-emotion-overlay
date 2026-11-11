@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Local user state: uploaded images, debug recordings, personal config
+data/
+config.yaml
+
+# Models (normally in ~/.cache/huggingface, but keep any local copies out of git)
+models/
+*.onnx
+*.bin
+*.safetensors
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

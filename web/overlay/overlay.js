@@ -1,0 +1,46 @@
+// OBS overlay: shows the image for the current emotion with a cross-fade.
+// URL options: ?fit=cover (fill and crop instead of letterbox), ?label=1 (show emotion name).
+import { connect } from "/static/common/socket.js";
+
+const params = new URLSearchParams(location.search);
+const layers = [document.getElementById("layer-a"), document.getElementById("layer-b")];
+const label = document.getElementById("label");
+
+if (params.get("fit") === "cover") layers.forEach((l) => l.classList.add("cover"));
+label.hidden = params.get("label") !== "1";
+
+let front = 0;
+let wanted = null;
+
+// Two stacked <img> layers: load the new image into the hidden one, then swap
+// opacities so the old image fades out while the new one fades in.
+async function show(src, fadeMs) {
+  if (src === wanted) return;
+  wanted = src;
+  for (const layer of layers) layer.style.transitionDuration = `${fadeMs}ms`;
+
+  if (!src) {
+    layers[front].classList.remove("visible");
+    return;
+  }
+  const back = layers[1 - front];
+  back.src = src;
+  try {
+    await back.decode(); // wait until it's ready so we never fade in a blank frame
+  } catch {
+    // decode() can reject for some GIFs; show it anyway
+  }
+  if (wanted !== src) return; // a newer change arrived while loading
+  back.classList.add("visible");
+  layers[front].classList.remove("visible");
+  front = 1 - front;
+}
+
+// The overlay connects without ?debug=1, so it never receives transcripts.
+connect("/ws", {
+  onMessage(msg) {
+    if (msg.type !== "state") return;
+    label.textContent = msg.emotion;
+    show(msg.image, msg.fade_ms ?? 300);
+  },
+});

@@ -1,0 +1,51 @@
+[project]
+name = "emotion-overlay"
+version = "0.1.0"
+description = "Local speech emotion detection that swaps your stream overlay image."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "numpy>=1.26",
+    "pillow>=10.3",
+    "sounddevice>=0.4.7",
+    "faster-whisper>=1.1",
+    "silero-vad>=5.1",
+    "transformers>=4.44",
+    "torch>=2.3",
+]
+
+[project.scripts]
+emotion-overlay = "emotion_overlay.main:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/emotion_overlay"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "S"]
+# S311: `random` is used to pick overlay images, not for security.
+ignore = ["S311"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["emotion_overlay", "conftest"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
