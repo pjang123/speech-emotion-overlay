@@ -3,7 +3,7 @@
 Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief: `SPEC.md`.
 
 ## Status
-- Phase 1 (pipeline MVP) built. Phase 2 (smoothing/hysteresis/cooldown, rotation, tiers, transitions, zip export) next. Wait for user approval between phases.
+- Phase 1 (pipeline MVP) built and verified by the user on real mic + overlay (2026-11-12). Phase 2 (smoothing/hysteresis/cooldown, rotation, tiers, transitions, zip export) next. Wait for user approval between phases.
 
 ## Commands
 - Install: `uv sync` (or `pip install -r requirements.txt`; regenerate with `uv export --no-hashes --no-dev -o requirements.txt`)
