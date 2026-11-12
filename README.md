@@ -69,6 +69,19 @@ Everything in this diagram runs on your PC. The overlay only ever receives "show
 
 ## Install
 
+### Windows installer (no Python needed)
+
+1. Download `EmotionOverlay-Setup-<version>.exe` from the [Releases](../../releases) page.
+2. Run it. It installs for your user only (no admin prompt) and adds Start menu and optional desktop shortcuts.
+3. Start **Emotion Overlay**. A console window shows progress, and the setup page opens in your browser. Close the console window to quit.
+
+- **First start:** downloads the models (about 800 MB, a few minutes). After that it works offline.
+- **Your files:** settings, images and calibration are kept in `%LOCALAPPDATA%\EmotionOverlay`. Uninstalling leaves them there, so delete that folder too if you want them gone.
+- **Unsigned:** the installer isn't code-signed yet. Windows shows "Windows protected your PC"; click **More info → Run anyway**. With **Smart App Control** on, Windows blocks unsigned apps outright, so run from source instead (below).
+- **Troubleshooting:** run `EmotionOverlay.exe --self-test` from the install folder (`%LOCALAPPDATA%\Programs\Emotion Overlay`). It loads every model and runs each once, without a microphone.
+
+### From source
+
 You need Python 3.11+ on Windows, macOS or Linux, and [uv](https://docs.astral.sh/uv/) (recommended) or pip.
 
 ```sh
@@ -103,6 +116,8 @@ URL options: `?fit=cover` fills the source and crops instead of letterboxing. `?
 |---|---|
 | `--config PATH` | Config file (default `config.yaml`; every key is optional). See [`config.example.yaml`](config.example.yaml). |
 | `--no-audio` | Serve the web UI without loading models or opening the mic. |
+| `--open-browser` / `--no-open-browser` | Open the setup page on start (on by default only in the installed app). |
+| `--self-test` | Load every model, run each once without a microphone, then exit. |
 | `--log-level DEBUG` | Verbose logs, including any HTTP requests (useful to verify the privacy claims below). |
 
 ## Evaluation
@@ -186,6 +201,12 @@ uv run ruff format .        # format
 ```
 
 `uv run pytest` may be blocked by Smart App Control (it launches an unsigned `.exe`). `python -m pytest` works.
+
+### Building the Windows installer
+
+The [Windows installer workflow](.github/workflows/windows-installer.yml) runs on pushes that change `packaging/`, on demand, and when a GitHub Release is published (the installer is then attached to that release). It builds the app with PyInstaller (`packaging/emotion_overlay.spec`), self-tests the bundle with both Whisper backends, checks the web UI is served, builds the installer with Inno Setup (`packaging/installer.iss`), then installs, self-tests and uninstalls it.
+
+To build locally: `uv sync --group build`, then `uv run python -m PyInstaller packaging/emotion_overlay.spec`, then `iscc /DAppVersion=0.1.0 packaging\installer.iss`. The output goes to `dist/`. A locally built exe is unsigned, so Smart App Control blocks it on the machine that built it.
 
 ## Known limitations
 
