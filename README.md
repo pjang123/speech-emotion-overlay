@@ -69,16 +69,7 @@ Everything in this diagram runs on your PC. The overlay only ever receives "show
 
 ## Install
 
-### Windows installer (no Python needed)
-
-1. Download `EmotionOverlay-Setup-<version>.exe` from the [Releases](../../releases) page.
-2. Run it. It installs for your user only (no admin prompt) and adds Start menu and optional desktop shortcuts.
-3. Start **Emotion Overlay**. A console window shows progress, and the setup page opens in your browser. Close the console window to quit.
-
-- **First start:** downloads the models (about 800 MB, a few minutes). After that it works offline.
-- **Your files:** settings, images and calibration are kept in `%LOCALAPPDATA%\EmotionOverlay`. Uninstalling leaves them there, so delete that folder too if you want them gone.
-- **Unsigned:** the installer isn't code-signed yet. Windows shows "Windows protected your PC"; click **More info → Run anyway**. With **Smart App Control** on, Windows blocks unsigned apps outright, so run from source instead (below).
-- **Troubleshooting:** run `EmotionOverlay.exe --self-test` from the install folder (`%LOCALAPPDATA%\Programs\Emotion Overlay`). It loads every model and runs each once, without a microphone.
+No prebuilt installer is published. It isn't code-signed, and Windows (Smart App Control in particular) blocks unsigned apps, so run from source. The installer can still be built yourself (see [Building the Windows installer](#building-the-windows-installer)).
 
 ### From source
 
@@ -204,7 +195,7 @@ uv run ruff format .        # format
 
 ### Building the Windows installer
 
-The [Windows installer workflow](.github/workflows/windows-installer.yml) runs on pushes that change `packaging/`, on demand, and when a GitHub Release is published (the installer is then attached to that release). It builds the app with PyInstaller (`packaging/emotion_overlay.spec`), self-tests the bundle with both Whisper backends, checks the web UI is served, builds the installer with Inno Setup (`packaging/installer.iss`), then installs, self-tests and uninstalls it.
+The [Windows installer workflow](.github/workflows/windows-installer.yml) runs on pushes that change `packaging/` and on demand. It only checks that the installer builds and works; nothing is uploaded or published. It builds the app with PyInstaller (`packaging/emotion_overlay.spec`), self-tests the bundle with both Whisper backends, checks the web UI is served, builds the installer with Inno Setup (`packaging/installer.iss`), then installs, self-tests and uninstalls it.
 
 To build locally: `uv sync --group build`, then `uv run python -m PyInstaller packaging/emotion_overlay.spec`, then `iscc /DAppVersion=0.1.0 packaging\installer.iss`. The output goes to `dist/`. A locally built exe is unsigned, so Smart App Control blocks it on the machine that built it.
 

@@ -1,5 +1,5 @@
-# Builds EmotionOverlay-Setup-<version>.exe, tests it on a clean Windows machine and
-# uploads it. Publishing a GitHub Release also attaches the installer to that release.
+# Builds EmotionOverlay-Setup-<version>.exe and tests it on a clean Windows machine.
+# The installer is unsigned, so nothing is uploaded or published: the build is a check only.
 name: Windows installer
 
 on:
@@ -7,12 +7,10 @@ on:
     paths:
       - "packaging/**"
       - ".github/workflows/windows-installer.yml"
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
-  contents: write # attach the installer to releases
+  contents: read
 
 concurrency:
   group: windows-installer-${{ github.ref }}
@@ -45,7 +43,6 @@ jobs:
         id: version
         run: |
           $v = uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
-          if ("${{ github.event_name }}" -eq "release") { $v = "${{ github.event.release.tag_name }}".TrimStart("v") }
           "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: Build app bundle (PyInstaller)
@@ -103,18 +100,3 @@ jobs:
           Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
           Start-Sleep -Seconds 3
           if (Test-Path $env:INSTALLED_EXE) { Write-Error "uninstall left the app behind"; exit 1 }
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: EmotionOverlay-Setup-${{ steps.version.outputs.version }}
-          path: dist/EmotionOverlay-Setup-*.exe
-          retention-days: 30
-          compression-level: 0
-
-      - name: Attach installer to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $setup = (Get-ChildItem dist\EmotionOverlay-Setup-*.exe | Select-Object -First 1).FullName
-          gh release upload "${{ github.event.release.tag_name }}" $setup --clobber

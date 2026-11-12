@@ -18,7 +18,7 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 - Install: `uv sync` (or `pip install -r requirements.txt`; regenerate with `uv export --no-hashes --no-dev -o requirements.txt`)
 - Run: `uv run python -m emotion_overlay` (setup at http://127.0.0.1:8765/setup, overlay at /overlay). `--no-audio` for UI only, `--log-level DEBUG` to audit network calls.
 - Evaluate: `uv run python -m emotion_overlay.eval {download ravdess | record | run ravdess|mine | report ravdess|mine}`; pass `--config config.example.yaml` for reproducible (default) settings
-- Installer: built in CI (push to `packaging/**`, workflow_dispatch, or publishing a Release attaches it). Local: `uv sync --group build`, `uv run python -m PyInstaller packaging/emotion_overlay.spec` (use `--workpath`/`--distpath` outside OneDrive). Smart App Control blocks running the unsigned exe on the dev machine, so it can only be tested in CI.
+- Installer: built and tested in CI (push to `packaging/**` or workflow_dispatch) but never uploaded or released: it's unsigned and Smart App Control blocks it. User decision (2026-11-12): don't publish releases or build files. Local: `uv sync --group build`, `uv run python -m PyInstaller packaging/emotion_overlay.spec` (use `--workpath`/`--distpath` outside OneDrive). Smart App Control blocks running the unsigned exe on the dev machine, so it can only be tested in CI.
 - Test: `uv run python -m pytest` (NOT `uv run pytest`: Smart App Control blocks the pytest.exe shim on the dev machine)
 - Lint/format: `uv run ruff check .` / `uv run ruff format .`
 
