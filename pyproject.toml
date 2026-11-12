@@ -23,6 +23,9 @@ dependencies = [
 emotion-overlay = "emotion_overlay.main:main"
 
 [dependency-groups]
+build = [
+    "pyinstaller>=6.11",
+]
 dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27"]
 
 [build-system]
