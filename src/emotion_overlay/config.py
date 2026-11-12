@@ -1,4 +1,4 @@
-"""Typed configuration loaded from YAML. See config.example.yaml for documentation."""
+"""Typed configuration loaded from YAML (config.yaml; every key is optional)."""
 
 import logging
 from pathlib import Path
