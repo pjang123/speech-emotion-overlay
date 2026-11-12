@@ -4,8 +4,10 @@ An image is (re)picked when the emotion changes, when the current image is no
 longer eligible (deleted, intensity tier changed, new upload for this emotion),
 or on every utterance if `new_image_each_utterance` is on.
 
-A word trigger temporarily overrides the emotion image; emotion changes keep
-being tracked underneath, so the right image is back as soon as it ends.
+A word trigger temporarily overrides the emotion image, and a manual override
+(hotkey or setup page) holds a chosen emotion until it's released. Detected
+emotion changes keep being tracked underneath either, so the right image is back
+as soon as they end. Order on screen: trigger, then manual, then detected.
 
 `play` increases every time a (new) image starts showing. The overlay uses it to
 restart animated GIFs from their first frame instead of resuming mid-loop.
@@ -41,6 +43,8 @@ class DisplayState:
         self._state = EmotionState(NEUTRAL, 0.0, "startup", 0.0)
         self._image: ImageRecord | None = None
         self._override: _Override | None = None
+        self._manual: str | None = None
+        self._manual_image: ImageRecord | None = None
         self._play = 0
         self._tokens = 0
         self._update(force_new=True)
@@ -54,7 +58,11 @@ class DisplayState:
             emotion_changed = state.emotion != self._state.emotion
             self._state = state
             reshuffle = new_utterance and self._config.new_image_each_utterance
+            hidden = self._override is not None or self._manual is not None
+            play = self._play
             self._update(force_new=emotion_changed or reshuffle)
+            if hidden:
+                self._play = play  # don't restart a GIF that is covering this change
             return self._message()
 
     def refresh(self) -> dict[str, Any]:
@@ -63,8 +71,32 @@ class DisplayState:
             if self._override and self._store.get(self._override.image.id) is None:
                 self._override = None
                 self._play += 1
+            if self._manual and self._manual_image not in self._manual_pool():
+                self._manual_image = self._choose(self._manual_pool(), (self._manual, "manual"))
+                self._play += 1
             self._update(force_new=False)
             return self._message()
+
+    @property
+    def manual(self) -> str | None:
+        return self._manual
+
+    def set_manual(self, emotion: str | None) -> dict[str, Any]:
+        """Hold `emotion` on screen until called with None (back to detected emotions)."""
+        with self._lock:
+            if emotion == self._manual:
+                return self._message()
+            self._manual = emotion
+            self._manual_image = (
+                self._choose(self._manual_pool(), (emotion, "manual")) if emotion else None
+            )
+            self._play += 1
+            return self._message()
+
+    def _manual_pool(self) -> list[ImageRecord]:
+        assert self._manual is not None  # noqa: S101 - callers check
+        # A deliberate choice, so prefer the strong images.
+        return self._store.pool(self._manual, self._config.fallbacks, "strong")
 
     def trigger(self, image: ImageRecord, phrase: str) -> tuple[dict[str, Any], int]:
         """Show `image` until end_trigger(token) is called. Returns (message, token)."""
@@ -108,13 +140,20 @@ class DisplayState:
         return self._rng.choice(others or pool)
 
     def _message(self) -> dict[str, Any]:
-        shown = self._override.image if self._override else self._image
+        if self._override:
+            shown = self._override.image
+        elif self._manual:
+            shown = self._manual_image
+        else:
+            shown = self._image
         return {
             "type": "state",
-            "emotion": self._state.emotion,
-            "confidence": round(self._state.confidence, 3),
-            "tier": self.tier(self._state.confidence),
-            "reason": self._state.reason,
+            "emotion": self._manual or self._state.emotion,
+            "confidence": 1.0 if self._manual else round(self._state.confidence, 3),
+            "tier": "strong" if self._manual else self.tier(self._state.confidence),
+            "reason": "manual" if self._manual else self._state.reason,
+            "manual": self._manual,
+            "detected": self._state.emotion,
             "image": shown.url if shown else None,
             "play": self._play,
             "trigger": self._override.phrase if self._override else None,

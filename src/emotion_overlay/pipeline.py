@@ -4,9 +4,14 @@ Threads:
 - PortAudio callback: resamples and enqueues raw audio (must stay cheap).
 - vad: segments audio into utterances, tracks speaking/silence, ticks the state machine.
 - asr: transcribes each utterance, classifies the rolling transcript, fuses it with
-  the voice model's scores, updates the state.
-- voice (pool of 1): scores tone of voice in parallel with transcription, so it
-  adds no latency as long as it's faster than Whisper.
+  the voice model's scores, updates the state. While someone keeps talking it also
+  gets "interim" jobs (the sentence so far, every `classifier.interim_s` seconds of
+  speech, only when it's idle) so the image can change before the sentence ends.
+  Interims use the words only; the finished sentence is scored in full as usual.
+- voice (pool of 1): scores tone of voice in parallel with transcription. If it's
+  still running when the words are scored, the words-only result is shown first and
+  the combined one replaces it when the voice is done, so a slow voice model never
+  delays the first reaction.
 
 Results leave through `PipelineEvents` callbacks, which must be thread-safe.
 Transcripts are only logged at DEBUG level so they don't end up in console logs by default.
@@ -43,6 +48,13 @@ CalibrationListener = Callable[[Scores, Scores, SpeechStats], None]
 
 
 @dataclass(frozen=True)
+class Interim:
+    """The part of an utterance spoken so far, while the speaker is still going."""
+
+    audio: np.ndarray
+
+
+@dataclass(frozen=True)
 class PipelineEvents:
     # (state, new_utterance): sent after every classified utterance (so intensity
     # tiers and per-utterance image rotation can react) and on time-based changes.
@@ -57,7 +69,10 @@ class Pipeline:
         self._config = config
         self._events = events
         self._audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=300)  # ~10 s of audio
-        self._utt_q: queue.Queue[Utterance] = queue.Queue()
+        self._utt_q: queue.Queue[Utterance | Interim] = queue.Queue()
+        self._asr_busy = False
+        # Length of the utterance in progress at which to send the next interim.
+        self._interim_due_s = config.classifier.interim_s
         self._stop = threading.Event()
         self._reset_vad = threading.Event()
         self._state_lock = threading.Lock()
@@ -78,6 +93,7 @@ class Pipeline:
         self._dropped_blocks = 0
         self._listening = True  # runtime only: every start begins listening
         self._control_lock = threading.Lock()  # serialises start/stop/device changes
+        self._reload_lock = threading.Lock()  # one CPU/GPU switch at a time
 
     # --- control (called from the server) ---------------------------------
 
@@ -120,6 +136,51 @@ class Pipeline:
                 self._events.on_state(state, False)
             self._set_status("paused", "Paused: microphone is off")
 
+    def reload_models(self) -> bool:
+        """Reload the models with the current `device` settings (CPU/GPU switch), in
+        the background. The old models keep working until the new ones are ready.
+        Returns False if models are still loading or a switch is already running."""
+        if self._transcriber is None or not self._reload_lock.acquire(blocking=False):
+            return False
+        threading.Thread(target=self._reload, name="model-reload", daemon=True).start()
+        return True
+
+    def _reload(self) -> None:
+        from emotion_overlay.asr import load_transcriber
+        from emotion_overlay.classify.audio import AudioEmotionClassifier
+        from emotion_overlay.classify.text import TextEmotionClassifier
+        from emotion_overlay.compute import release_gpu_memory
+
+        cfg = self._config
+        previous = self._status
+        try:
+            self._set_status("loading", "Switching processor: loading speech-to-text...")
+            transcriber = load_transcriber(cfg.asr)
+            self._set_status("loading", "Switching processor: loading the emotion models...")
+            classifier = TextEmotionClassifier(cfg.classifier)
+            voice = AudioEmotionClassifier(cfg.audio_emotion) if self._voice is not None else None
+        except Exception as exc:
+            log.exception("Switching processor failed; keeping the current models")
+            self._status = {**previous, "message": f"Couldn't switch processor: {exc}"}
+        else:
+            self._transcriber, self._classifier = transcriber, classifier
+            if voice is not None:
+                self._voice = voice
+            release_gpu_memory()
+            self._status = previous
+            log.info("Models now on: %s", self.devices())
+        finally:
+            self._reload_lock.release()
+        self._events.on_message(self.status())
+
+    def devices(self) -> dict[str, str | None]:
+        """Where each model is running ('cpu'/'cuda'), None if not loaded."""
+        return {
+            "speech": getattr(self._transcriber, "device", None),
+            "text": getattr(self._classifier, "device", None),
+            "voice": getattr(self._voice, "device", None),
+        }
+
     def set_calibration(self, calibration: Calibration | None) -> None:
         self._calibration = calibration
 
@@ -140,6 +201,8 @@ class Pipeline:
             "asr": f"{self._transcriber.backend} on {self._transcriber.device}"
             if self._transcriber
             else None,
+            "devices": self.devices(),
+            "switching": self._reload_lock.locked(),
             "pending_utterances": self._utt_q.qsize(),
             "dropped_audio_blocks": self._dropped_blocks,
         }
@@ -202,13 +265,17 @@ class Pipeline:
         return False
 
     def _open_mic(self) -> None:
+        audio = self._config.audio
         try:
-            self._capture.start(self._config.audio.device)
+            self._capture.start(audio.device, audio.device_name, audio.device_hostapi)
         except Exception as exc:
             log.exception("Could not open microphone")
             self._set_status("mic_error", f"Could not open microphone: {exc}")
             return
-        self._set_status("listening", f"Listening on {self._capture.device_name}")
+        message = f"Listening on {self._capture.device_name}"
+        if self._capture.missing_device:
+            message += f" ('{self._capture.missing_device}' isn't connected)"
+        self._set_status("listening", message)
 
     # --- workers ----------------------------------------------------------
 
@@ -236,6 +303,7 @@ class Pipeline:
             utterances = segmenter.feed(block) if block is not None else []
             for utterance in utterances:
                 self._utt_q.put(utterance)
+            self._maybe_interim(segmenter, restart=bool(utterances))
 
             speaking = segmenter.speaking
             if speaking != was_speaking:
@@ -248,16 +316,81 @@ class Pipeline:
                     self._machine.on_activity(now)
                 self._emit_if_changed(self._machine.tick(now))
 
+    def _maybe_interim(self, segmenter: UtteranceSegmenter, restart: bool) -> None:
+        """Queue the sentence so far if it has grown by another `interim_s` of speech."""
+        interval = self._config.classifier.interim_s
+        length = segmenter.buffered_s
+        if restart or not segmenter.speaking:
+            self._interim_due_s = interval
+        if interval <= 0 or not segmenter.speaking or length < self._interim_due_s:
+            return
+        if segmenter.trailing_silence_s > 0:
+            return  # maybe the end of the sentence: don't delay the final result
+        self._interim_due_s = length + interval
+        idle = not self._asr_busy and self._utt_q.empty()
+        if idle and self._listening and self._calibration_listener is None:
+            self._utt_q.put(Interim(segmenter.partial()))
+
     def _asr_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                utterance = self._utt_q.get(timeout=0.2)
+                item = self._utt_q.get(timeout=0.2)
             except queue.Empty:
                 continue
+            self._asr_busy = True
             try:
-                self._handle_utterance(utterance)
+                if isinstance(item, Interim):
+                    if self._utt_q.empty():  # the finished sentence is already waiting
+                        self._handle_interim(item)
+                else:
+                    self._handle_utterance(item)
             except Exception:
                 log.exception("Failed to process utterance")
+            finally:
+                self._asr_busy = False
+
+    def _handle_interim(self, interim: Interim) -> None:
+        cfg = self._config
+        t_start = time.perf_counter()
+        text = self._transcriber.transcribe(interim.audio)
+        if not text or not self._listening or self._calibration_listener is not None:
+            return
+        self._window.seconds = cfg.classifier.window_seconds
+        window_text = self._window.preview(text, time.monotonic())
+        if cfg.classifier.slang:
+            window_text = plain_english(window_text)
+        calibration = self._calibration
+        breakdown = score_utterance(
+            self._classifier.scores(window_text),
+            {},  # the voice model is too slow to run twice; the full sentence gets it
+            cfg.audio_emotion.label_map,
+            cfg.audio_emotion.weight,
+            calibration.voice_bias if calibration else None,
+            calibration.final_bias if calibration else None,
+        )
+        with self._state_lock:
+            state = self._machine.on_scores(breakdown.final, time.monotonic())
+            smoothed = self._machine.smoothed
+            self._last_emitted = state
+            self._events.on_state(state, False)
+        took_ms = round((time.perf_counter() - t_start) * 1000)
+        log.debug("interim %.1fs (%d ms): %s", len(interim.audio) / SAMPLE_RATE, took_ms, text)
+        self._events.on_message(
+            {
+                "type": "debug",
+                "interim": True,
+                "transcript": text,
+                "window": window_text,
+                "text_scores": breakdown.text,
+                "scores": breakdown.final,
+                "smoothed": smoothed,
+                "calibrated": calibration is not None,
+                "emotion": state.emotion,
+                "confidence": state.confidence,
+                "duration_s": round(len(interim.audio) / SAMPLE_RATE, 2),
+                "took_ms": took_ms,
+            }
+        )
 
     def _score_voice(self, audio: np.ndarray) -> tuple[Scores, float]:
         t = time.perf_counter()
@@ -298,6 +431,13 @@ class Pipeline:
             text_scores = self._classifier.scores(window_text)
         t_classify = time.perf_counter()
 
+        early_ms = None
+        new_utterance = True
+        voice_pending = voice_job is not None and not voice_job.done()
+        if voice_pending and text_scores and not listener and self._show_words_first(text_scores):
+            early_ms = round((time.monotonic() - utterance.ended_at) * 1000)
+            new_utterance = False  # the image was already re-picked for this one
+
         voice_raw: Scores = {}
         voice_ms = None
         if voice_job is not None:
@@ -333,7 +473,7 @@ class Pipeline:
             state = self._machine.on_scores(breakdown.final, now)
             smoothed = self._machine.smoothed
             self._last_emitted = state
-            self._events.on_state(state, True)
+            self._events.on_state(state, new_utterance)
 
         # The VAD only notices the end of speech after min_silence_ms of quiet.
         detect_delay = 0.0 if utterance.forced else cfg.vad.min_silence_ms / 1000
@@ -343,6 +483,10 @@ class Pipeline:
             "classify_ms": round((t_classify - t_asr) * 1000),
             "voice_ms": round(voice_ms) if voice_ms is not None else None,
             "speech_end_to_state_ms": round((now - utterance.ended_at + detect_delay) * 1000),
+            # When the words-only result was shown before the voice was done.
+            "words_shown_ms": round(early_ms + detect_delay * 1000)
+            if early_ms is not None
+            else None,
         }
         log.info(
             "utterance %.1fs%s | asr %d ms | text %d ms | voice %s ms | speech end -> state %d ms"
@@ -374,6 +518,30 @@ class Pipeline:
                 "timings": timings,
             }
         )
+
+    def _show_words_first(self, text_scores: Scores) -> bool:
+        """Show the words-only result while the voice model is still working.
+
+        Skipped when anti-flicker rules are on: they count classifier windows, and one
+        sentence must stay one window there.
+        """
+        cfg = self._config
+        if cfg.state.persist_windows > 1 or cfg.state.smoothing < 1.0:
+            return False
+        calibration = self._calibration
+        breakdown = score_utterance(
+            text_scores,
+            {},
+            cfg.audio_emotion.label_map,
+            cfg.audio_emotion.weight,
+            calibration.voice_bias if calibration else None,
+            calibration.final_bias if calibration else None,
+        )
+        with self._state_lock:
+            state = self._machine.on_scores(breakdown.final, time.monotonic())
+            self._last_emitted = state
+            self._events.on_state(state, True)
+        return True
 
     # --- helpers ----------------------------------------------------------
 

@@ -1,4 +1,4 @@
 {
-  "Models": "Whisper base.en (faster-whisper on cpu); text j-hartmann/emotion-english-distilroberta-base; voice superb/hubert-base-superb-er",
+  "Models": "Whisper base.en (faster-whisper on cpu); text j-hartmann/emotion-english-distilroberta-base; voice tiantiaf/wavlm-large-categorical-emotion",
   "Hardware": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD, 16 logical CPUs, Windows 11"
 }

@@ -1,5 +1,5 @@
 from emotion_overlay.calibration import PROMPTS, CalibrationSample, SpeechStats
-from emotion_overlay.config import AppConfig
+from emotion_overlay.config import OLD_AUDIO_LABEL_MAP, AppConfig, AudioEmotionConfig
 from emotion_overlay.emotions import EMOTIONS
 from emotion_overlay.personalize import personalize
 
@@ -27,6 +27,11 @@ def voice_for(emotion: str, right: bool = True) -> dict[str, float]:
     return {k: (0.85 if k == label else 0.05) for k in ("neu", "hap", "ang", "sad")}
 
 
+def four_mood_config() -> AppConfig:
+    """A 4-mood voice model (one label stands for several emotions), the harder case."""
+    return AppConfig(audio_emotion=AudioEmotionConfig(label_map=OLD_AUDIO_LABEL_MAP))
+
+
 def samples(text_fn, voice_fn, speech: SpeechStats | None = None) -> list[CalibrationSample]:
     return [CalibrationSample(e, text_fn(e), voice_fn(e), speech) for e, _ in PROMPTS]
 
@@ -38,7 +43,7 @@ def by_path(result) -> dict:
 def test_voice_turned_off_when_every_weight_hurts() -> None:
     # Words are right but faint; the voice is confidently wrong.
     result = personalize(
-        samples(lambda e: text_for(e, 0.2), lambda e: voice_for(e, right=False)), AppConfig()
+        samples(lambda e: text_for(e, 0.2), lambda e: voice_for(e, right=False)), four_mood_config()
     )
     rec = by_path(result)["audio_emotion.enabled"]
     assert rec.value is False and "faster" in rec.reason
@@ -49,7 +54,7 @@ def test_voice_turned_off_when_every_weight_hurts() -> None:
 def test_voice_weight_lowered_rather_than_off_when_a_little_is_harmless() -> None:
     # Smallest change that fixes it: keep tone of voice (it can still catch laughs).
     result = personalize(
-        samples(lambda e: text_for(e, 0.3), lambda e: voice_for(e, right=False)), AppConfig()
+        samples(lambda e: text_for(e, 0.3), lambda e: voice_for(e, right=False)), four_mood_config()
     )
     recs = by_path(result)
     assert recs["audio_emotion.weight"].value == 0.1
@@ -63,20 +68,20 @@ def test_voice_weight_raised_when_words_carry_nothing() -> None:
         for e, _ in PROMPTS
         if e in ("neutral", "joy", "anger", "sadness")
     ]
-    result = personalize(four, AppConfig())
+    result = personalize(four, four_mood_config())
     rec = by_path(result)["audio_emotion.weight"]
     assert rec.value > 0.25
     assert result.calibration.accuracy["after"] > result.calibration.accuracy["before"]
 
 
 def test_no_weight_change_without_a_clear_win() -> None:
-    result = personalize(samples(text_for, voice_for), AppConfig())
+    result = personalize(samples(text_for, voice_for), four_mood_config())
     assert "audio_emotion.weight" not in by_path(result)
     assert "audio_emotion.enabled" not in by_path(result)
 
 
 def test_confidence_and_strong_thresholds_follow_the_users_scores() -> None:
-    config = AppConfig()
+    config = four_mood_config()
     config.audio_emotion.enabled = False
     config.state.confidence_threshold = 0.6
     result = personalize(samples(lambda e: text_for(e, 0.45), lambda e: {}), config)
@@ -87,7 +92,7 @@ def test_confidence_and_strong_thresholds_follow_the_users_scores() -> None:
 
 
 def test_pause_length_follows_mid_sentence_pauses() -> None:
-    config = AppConfig()
+    config = four_mood_config()
     config.audio_emotion.enabled = False
     slow = SpeechStats(pauses_ms=(500, 600, 550), speech_probs=(0.9,) * 10, noise_probs=(0.02,) * 5)
     rec = by_path(personalize(samples(text_for, lambda e: {}, slow), config))["vad.min_silence_ms"]
@@ -99,7 +104,7 @@ def test_pause_length_follows_mid_sentence_pauses() -> None:
 
 
 def test_vad_threshold_lowered_only_for_quiet_speakers() -> None:
-    config = AppConfig()
+    config = four_mood_config()
     config.audio_emotion.enabled = False
     quiet = SpeechStats((200,), speech_probs=(0.52,) * 10, noise_probs=(0.05,) * 5)
     rec = by_path(personalize(samples(text_for, lambda e: {}, quiet), config))["vad.threshold"]
@@ -112,7 +117,7 @@ def test_vad_threshold_lowered_only_for_quiet_speakers() -> None:
 
 
 def test_vad_threshold_raised_for_noisy_rooms() -> None:
-    config = AppConfig()
+    config = four_mood_config()
     config.audio_emotion.enabled = False
     noisy = SpeechStats((200,), speech_probs=(0.97,) * 10, noise_probs=(0.4,) * 5)
     rec = by_path(personalize(samples(text_for, lambda e: {}, noisy), config))["vad.threshold"]
@@ -120,7 +125,7 @@ def test_vad_threshold_raised_for_noisy_rooms() -> None:
 
 
 def test_too_little_speech_data_changes_no_vad_settings() -> None:
-    config = AppConfig()
+    config = four_mood_config()
     config.audio_emotion.enabled = False
     few = [CalibrationSample(e, text_for(e), {}) for e, _ in PROMPTS]
     paths = by_path(personalize(few, config))
@@ -128,7 +133,7 @@ def test_too_little_speech_data_changes_no_vad_settings() -> None:
 
 
 def test_patch_is_valid_settings() -> None:
-    config = AppConfig()
+    config = four_mood_config()
     result = personalize(
         samples(lambda e: text_for(e, 0.2), lambda e: voice_for(e, right=False)), config
     )

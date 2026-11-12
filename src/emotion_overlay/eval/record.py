@@ -69,7 +69,7 @@ def record(config: AppConfig, out: Path) -> None:
             if input("    Enter = record, s = skip > ").strip().lower() == "s":
                 continue
             segmenter.reset()
-            mic.start(config.audio.device)
+            mic.start(config.audio.device, config.audio.device_name, config.audio.device_hostapi)
             deadline = time.monotonic() + MAX_SECONDS
             utterance = None
             print("    ● recording… speak, then pause")

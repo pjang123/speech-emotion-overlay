@@ -28,6 +28,22 @@
     </section>
 
     <section class="card">
+      <h2>Processor</h2>
+      <p class="hint">Where the speech and emotion models run. An NVIDIA GPU makes each sentence much faster to process. Switching reloads the models in the background; the overlay keeps working meanwhile.</p>
+      <div class="row">
+        <select id="compute" aria-label="Processor">
+          <option value="auto">Automatic (GPU if available)</option>
+          <option value="cuda">GPU (NVIDIA)</option>
+          <option value="cpu">CPU</option>
+          <option value="mixed" disabled>Mixed (set in config.yaml)</option>
+        </select>
+      </div>
+      <p id="compute-gpu" class="hint"></p>
+      <p id="compute-running" class="mono muted small"></p>
+      <p id="compute-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
       <h2>Live</h2>
       <div class="live">
         <div class="preview">
@@ -49,6 +65,11 @@
           <p id="window" class="mono muted">—</p>
           <p id="timings" class="mono muted small"></p>
         </div>
+      </div>
+      <div class="manual">
+        <p class="label">Hold an emotion</p>
+        <div id="manual-buttons" class="manual-buttons"></div>
+        <p id="manual-hint" class="hint"></p>
       </div>
     </section>
 

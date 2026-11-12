@@ -56,6 +56,20 @@ class UtteranceSegmenter:
     def speaking(self) -> bool:
         return self._in_speech
 
+    @property
+    def buffered_s(self) -> float:
+        """Length of the utterance in progress (0 when not in speech)."""
+        return len(self._frames) * FRAME / SAMPLE_RATE if self._in_speech else 0.0
+
+    @property
+    def trailing_silence_s(self) -> float:
+        """Quiet since the last speech frame of the utterance in progress."""
+        return self._silence / SAMPLE_RATE
+
+    def partial(self) -> np.ndarray:
+        """A copy of the utterance in progress, e.g. to classify it before it ends."""
+        return np.concatenate(self._frames) if self._frames else np.zeros(0, np.float32)
+
     def reset(self) -> None:
         pad_frames = -(-_samples(self._config.speech_pad_ms) // FRAME)  # ceil
         self._pending = np.zeros(0, dtype=np.float32)

@@ -776,3 +776,20 @@ table.accuracy td {
   margin: 0 0 10px;
   padding-left: 20px;
 }
+
+/* --- hold an emotion by hand --- */
+.manual {
+  margin-top: 1rem;
+}
+
+.manual-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.manual-buttons button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text, #fff);
+}

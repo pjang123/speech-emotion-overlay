@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from conftest import make_image
 from emotion_overlay.audio.capture import InputDevice
+from emotion_overlay.compute import GpuInfo
 from emotion_overlay.config import AppConfig, load_config
 from emotion_overlay.pipeline import PipelineEvents
 from emotion_overlay.server.app import create_app
@@ -36,6 +37,10 @@ class FakeEngine:
 
     def set_device(self, device: int | None) -> None:
         self.device = device
+
+    def reload_models(self) -> bool:
+        self.reloads = getattr(self, "reloads", 0) + 1
+        return not getattr(self, "busy", False)
 
     def set_listening(self, listening: bool) -> None:
         self.listening = listening
@@ -139,6 +144,124 @@ def test_device_selection(client: TestClient, engine_holder: dict[str, FakeEngin
     assert client.put("/api/device", json={"device": 3}).status_code == 200
     assert engine_holder["engine"].device == 3
     assert client.put("/api/device", json={"device": 99}).status_code == 400
+
+
+def test_device_is_remembered_by_name(config: AppConfig) -> None:
+    devices = [InputDevice(3, "USB Mic", "MME", 48000.0, False)]
+    with TestClient(create_app(config, device_lister=lambda: devices), base_url=BASE) as client:
+        client.put("/api/device", json={"device": 3})
+        assert (config.audio.device_name, config.audio.device_hostapi) == ("USB Mic", "MME")
+        devices[:] = [  # another device was plugged in, so the mic's index moved
+            InputDevice(0, "Headset", "MME", 48000.0, True),
+            InputDevice(5, "USB Mic", "MME", 48000.0, False),
+        ]
+        data = client.get("/api/devices").json()
+        assert data["selected"] == 5 and data["missing"] is None
+        devices[:] = [InputDevice(0, "Headset", "MME", 48000.0, True)]  # unplugged
+        data = client.get("/api/devices").json()
+        assert data["selected"] is None and data["missing"] == "USB Mic"
+
+
+def test_device_saved_by_index_gets_its_name(config: AppConfig) -> None:
+    config.audio.device = 3  # a config.yaml from before names were saved
+    devices = [InputDevice(3, "USB Mic", "MME", 48000.0, False)]
+    with TestClient(create_app(config, device_lister=lambda: devices), base_url=BASE) as client:
+        assert client.get("/api/devices").json()["selected"] == 3
+    assert config.audio.device_name == "USB Mic"
+
+
+def test_hold_emotion_by_hand(client: TestClient) -> None:
+    assert client.get("/api/manual").json()["emotion"] is None
+    res = client.put("/api/manual", json={"emotion": "anger"})
+    assert res.status_code == 200 and res.json()["emotion"] == "anger"
+    state = client.get("/api/status").json()["state"]
+    assert (state["emotion"], state["manual"]) == ("anger", "anger")
+    assert client.put("/api/manual", json={"emotion": "rage"}).status_code == 400
+    assert client.put("/api/manual", json={"emotion": None}).json()["emotion"] is None
+    blocked = client.put("/api/manual", json={"emotion": "joy"}, headers=EVIL_ORIGIN)
+    assert blocked.status_code == 403
+
+
+class FakeHotkeys:
+    def __init__(self, on_press: Callable[[int], None]) -> None:
+        self.press = on_press
+        self.started = self.stopped = False
+        self.error: str | None = None
+        self.failed: list[int] = [3]
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+def test_hotkeys_hold_and_release(config: AppConfig) -> None:
+    made: list[FakeHotkeys] = []
+
+    def factory(on_press: Callable[[int], None]) -> FakeHotkeys:
+        made.append(FakeHotkeys(on_press))
+        return made[0]
+
+    app = create_app(config, device_lister=lambda: [], hotkey_factory=factory)  # type: ignore[arg-type]
+    with TestClient(app, base_url=BASE) as client:
+        keys = made[0]
+        assert keys.started
+        assert "3" in client.get("/api/manual").json()["hotkeys"]["problem"]
+        keys.press(1)  # EMOTIONS[0]
+        assert client.get("/api/manual").json()["emotion"] == "anger"
+        keys.press(1)  # same key again releases
+        assert client.get("/api/manual").json()["emotion"] is None
+        keys.press(4)
+        keys.press(0)  # back to automatic
+        assert client.get("/api/manual").json()["emotion"] is None
+    assert keys.stopped
+
+
+def compute_app(config: AppConfig, gpu: GpuInfo) -> tuple[TestClient, dict[str, FakeEngine]]:
+    holder: dict[str, FakeEngine] = {}
+
+    def factory(events: PipelineEvents) -> FakeEngine:
+        holder["engine"] = FakeEngine(events)
+        return holder["engine"]
+
+    app = create_app(
+        config, engine_factory=factory, device_lister=lambda: [], gpu_probe=lambda: gpu
+    )
+    return TestClient(app, base_url=BASE), holder
+
+
+def test_switch_to_gpu_reloads_models(config: AppConfig) -> None:
+    client, holder = compute_app(config, GpuInfo(True, "RTX Test", None))
+    with client:
+        data = client.get("/api/compute").json()
+        assert data["device"] == config.asr.device and data["gpu"]["name"] == "RTX Test"
+        assert client.put("/api/compute", json={"device": "cuda"}).json()["device"] == "cuda"
+        assert (config.asr.device, config.classifier.device, config.audio_emotion.device) == (
+            "cuda",
+            "cuda",
+            "cuda",
+        )
+        assert holder["engine"].reloads == 1
+        client.put("/api/compute", json={"device": "cuda"})  # unchanged: no reload
+        assert holder["engine"].reloads == 1
+        holder["engine"].busy = True  # still loading: refused, nothing changed
+        assert client.put("/api/compute", json={"device": "cpu"}).status_code == 409
+        assert config.asr.device == "cuda"
+        assert client.put("/api/compute", json={"device": "tpu"}).status_code == 422
+        blocked = client.put("/api/compute", json={"device": "cpu"}, headers=EVIL_ORIGIN)
+        assert blocked.status_code == 403
+
+
+def test_gpu_refused_when_unusable(config: AppConfig) -> None:
+    client, holder = compute_app(config, GpuInfo(False, None, "this copy of PyTorch is CPU-only"))
+    with client:
+        res = client.put("/api/compute", json={"device": "cuda"})
+        assert res.status_code == 400 and "CPU-only" in res.json()["detail"]
+        assert client.put("/api/compute", json={"device": "auto"}).status_code == 200
+    config.asr.device = "cpu"  # hand-edited config.yaml with different devices
+    with compute_app(config, GpuInfo(False, None, "x"))[0] as client:
+        assert client.get("/api/compute").json()["device"] == "mixed"
 
 
 def test_engine_lifecycle(client: TestClient, engine_holder: dict[str, FakeEngine]) -> None:
@@ -298,7 +421,7 @@ def test_saved_calibration_is_loaded_on_startup(config: AppConfig) -> None:
 
     config.data_dir.mkdir(parents=True, exist_ok=True)
     (config.data_dir / "calibration.json").write_text(
-        '{"voice_bias": {"neu": 0.4}, "final_bias": {"joy": 0.2}, "weight": 0.25, "samples": 9}'
+        '{"voice_bias": {"neutral": 0.4}, "final_bias": {"joy": 0.2}, "weight": 0.25, "samples": 9}'
     )
     create_app(config, engine_factory=factory, device_lister=lambda: [])
     assert holder["engine"].calibration.final_bias == {"joy": 0.2}

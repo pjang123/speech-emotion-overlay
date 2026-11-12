@@ -47,6 +47,22 @@ def list_input_devices() -> list[InputDevice]:
     return devices
 
 
+def pick_device(
+    devices: list[InputDevice], index: int | None, name: str | None, hostapi: str | None
+) -> int | None:
+    """The PortAudio index to open: the saved mic by name, else the saved index.
+
+    Returns None (system default) if a mic was saved by name but isn't connected.
+    """
+    if not name:
+        return index
+    same_name = [d for d in devices if d.name == name]
+    for device in same_name:
+        if device.hostapi == hostapi:
+            return device.index
+    return same_name[0].index if same_name else None
+
+
 def resample(block: np.ndarray, rate: int) -> np.ndarray:
     """Convert a mono block to 16 kHz. Good enough for speech recognition, not for music."""
     if rate == TARGET_RATE:
@@ -68,15 +84,26 @@ class MicCapture:
         self._stream: Any = None
         self.device_name = ""
         self.samplerate = 0
+        self.missing_device: str | None = None  # saved mic that wasn't connected
 
     @property
     def running(self) -> bool:
         return self._stream is not None
 
-    def start(self, device: int | None) -> None:
+    def start(
+        self, device: int | None, name: str | None = None, hostapi: str | None = None
+    ) -> None:
+        """Open the mic saved by `name` (+ `hostapi`), else `device` (index), else the default."""
         import sounddevice as sd
 
         self.stop()
+        if name:
+            device = pick_device(list_input_devices(), device, name, hostapi)
+            self.missing_device = name if device is None else None
+            if device is None:
+                log.warning("Saved microphone '%s' isn't connected; using the default", name)
+        else:
+            self.missing_device = None
         info = sd.query_devices(device, "input")
         rate = TARGET_RATE
         try:

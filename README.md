@@ -14,8 +14,11 @@ Everything runs locally. Audio never leaves your machine.
 - **Word triggers:** say "gg" or "let's go" and a chosen image or GIF shows for a few seconds, then the emotion image comes back. Matching is whole-word and ignores case; each trigger can list alternative spellings and has a Test button for checking it in OBS.
 - **Slang:** triggers forgive how Whisper spells things ("sup" fires on "Wassup", "bruh" on "Bruhhhh", "lol" on "L-O-L"), and slang is read as plain English before emotion scoring ("lol" counts as "haha", "that was fire" as "that was amazing"). The text model was trained on ordinary English and otherwise reads "lol" as neutral and "no cap that was fire" as anger. The table lives in `src/emotion_overlay/slang.py`; ambiguous words ("bet", "goat") are left out on purpose.
 - **Transitions:** cross-fade, cut, or bounce.
+- **CPU or GPU:** choose where the models run on the setup page. Switching takes effect without a restart. GPU support is an optional install (see [NVIDIA GPU](#nvidia-gpu-optional-much-faster)).
 - **Live settings:** every display and detection setting can be changed on the setup page while you're streaming. Changes apply immediately and are saved.
-- **Responsive by default:** the image follows every sentence. Optional anti-flicker controls (smoothing, a hold-off before switching, minimum time on screen) are available if you want a calmer overlay.
+- **Hold an emotion by hand:** buttons on the setup page, or global hotkeys that work while a game has focus: **Ctrl+Alt+Shift + 1–7** holds anger, disgust, fear, joy, neutral, sadness or surprise, and **+ 0** (or the same key again) goes back to automatic. A Stream Deck can do the same with `PUT /api/manual {"emotion": "joy"}`. Hotkeys use Windows' `RegisterHotKey`, so the app only ever sees those exact key combinations, never anything else you type. The modifiers are set in `config.yaml` (`hotkeys.modifiers`).
+- **Responsive by default:** the image follows every sentence, and can change while you're still talking: during long sentences the words so far are re-checked every second of speech (**Update while talking**; 0 turns it off). Optional anti-flicker controls (smoothing, a hold-off before switching, minimum time on screen) are available if you want a calmer overlay.
+- **Your mic is remembered by name,** so plugging in a headset or a webcam doesn't switch the app to the wrong input. If the saved mic isn't connected, the setup page says so and the system default is used until it's back.
 - **Stop/Start listening:** one button on the setup page. Pausing closes the microphone completely, so Windows' mic-in-use indicator goes off. Speech still being processed is thrown away, and the overlay shows your neutral image.
 - **Backup:** export your whole setup (images and settings) as a zip, and import it on another PC or share it.
 
@@ -26,7 +29,7 @@ flowchart LR
     mic[Microphone<br/>sounddevice] --> vad[Silero VAD<br/>utterances]
     vad --> asr[Whisper<br/>speech to text]
     asr --> text[Text emotion model<br/>7 emotions]
-    vad --> voice[Voice emotion model<br/>4 moods, in parallel]
+    vad --> voice[Voice emotion model<br/>7 emotions, in parallel]
     text --> fusion[Fusion + per-user<br/>calibration]
     voice --> fusion
     fusion --> sm[State machine<br/>threshold, silence,<br/>opt-in anti-flicker]
@@ -41,8 +44,9 @@ Everything in this diagram runs on your PC. The overlay only ever receives "show
 - **Voice activity detection** ([Silero VAD](https://github.com/snakers4/silero-vad)) splits audio into utterances. One ends after a 400 ms pause. Long speech is cut every 6 s so the image still updates mid-rant.
 - **Speech-to-text:** Whisper `base.en` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), or via 🤗 transformers when faster-whisper can't load (see [Windows notes](#windows-notes)).
 - **Emotion:** [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) scores the last ~6 s of transcript. The 7 labels are anger, disgust, fear, joy, neutral, sadness and surprise.
-- **Tone of voice:** [`superb/hubert-base-superb-er`](https://huggingface.co/superb/hubert-base-superb-er), Apache-2.0, trained on IEMOCAP. It runs on the same audio at the same time as Whisper, so it doesn't add a stage. I picked it over alternatives because one larger model was trained on RAVDESS (which would invalidate the Phase 4 evaluation), one is non-commercial, and one needs a heavy extra framework.
-- **Label mismatch, handled explicitly:** the voice model only knows `neu/hap/ang/sad`. A configurable `label_map` says which emotions each one stands for (e.g. `ang → anger, disgust, fear`). A voice label's probability is shared among its emotions in proportion to the text scores, so the voice says *agitated* and the words say *which kind*. When no words were heard (a laugh, a gasp), the voice alone decides.
+- **Tone of voice:** [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from [Vox-Profile](https://arxiv.org/abs/2505.14648) (OpenRAIL licence), a WavLM-large model trained on MSP-Podcast, i.e. natural podcast speech rather than actors. It's a simplified, audio-only version of the top system in the INTERSPEECH 2025 speech emotion challenge. It knows all 7 emotions plus "contempt" and "other". It was published for the authors' own wrapper class rather than as a transformers model, so `classify/vox_profile.py` rebuilds its small inference path (stock WavLM encoder, learned mix of its layers, a pooled classifier) and loads the weights directly. It runs on the same audio at the same time as Whisper. If it's still busy when the words are scored, the words-only result is shown first and refined when the voice is done, so it never delays the first reaction.
+- **Why this model:** it replaced `superb/hubert-base-superb-er` (IEMOCAP, 4 moods), which answered "angry" for 79% of RAVDESS clips. On RAVDESS the new one triples voice-only macro-F1 (see [Evaluation](#evaluation)). I ruled out models trained on RAVDESS (they would invalidate the evaluation) and a larger IEMOCAP model (`superb/hubert-large-superb-er`), which was no better than the base one.
+- **Label mapping, explicit:** voice labels never leak past the fusion step. A configurable `label_map` says which emotions each voice label stands for. For 4-mood models one label can cover several (e.g. `ang → anger, disgust, fear`); its probability is then shared in proportion to the text scores, so the voice says *agitated* and the words say *which kind*. Labels with no image group ("contempt", "other") are ignored. When no words were heard (a laugh, a gasp), the voice alone decides.
 - **Late fusion:** `final = (1 − w) · text + w · voice`, with `w = 0.25` by default (adjustable live).
 - **Calibration** (`calibration.py`): fits two small sets of per-class log-space offsets, `softmax(log p + b)`. The first undoes a skew in the voice model for your mic, for example "everything sounds angry". The second nudges the combined result. They're L2-regularised, clipped at ±3, and left at 0 for emotions you didn't record. The reported "after" accuracy is **leave-one-out**: each line is scored by a fit that never saw it.
 - **Personalised settings** (`personalize.py`): the same 14 lines also tune settings to the speaker. During calibration a line only ends after 900 ms of quiet, so it isn't split and the pauses inside it can be measured. Every rule needs enough evidence and stays within safe bounds.
@@ -79,13 +83,33 @@ You need Python 3.11+ on Windows, macOS or Linux, and [uv](https://docs.astral.s
 uv sync                      # or: pip install -r requirements.txt
 ```
 
+### NVIDIA GPU (optional, much faster)
+
+The default install uses the CPU-only build of PyTorch. To run the models on an NVIDIA GPU (Windows or Linux), install the CUDA build instead. It's about 3 GB:
+
+On Windows the easiest way is the two launchers in the repo folder. They can be used side by side:
+
+| | Start with | Environment |
+|---|---|---|
+| CPU | `run-cpu.bat` | `.venv` in the repo folder |
+| GPU | `run-gpu.bat` | `%LOCALAPPDATA%\emotion-overlay\gpu-venv`, kept apart because it's ~3 GB (the first run installs it) |
+
+Both use the same `config.yaml`, images and calibration. Elsewhere, or by hand:
+
+```sh
+uv sync --extra gpu                              # or, with pip: pip install torch --index-url https://download.pytorch.org/whl/cu130
+uv run --extra gpu python -m emotion_overlay     # keep --extra gpu: a plain `uv run` puts the CPU build back
+```
+
+Then choose **Processor → GPU** (or **Automatic**) on the setup page. The switch happens while the app runs: the current models keep working until the new ones have loaded. The page shows which GPU was found and where each model is running. faster-whisper needs CUDA 12 libraries that the CUDA 13 PyTorch build doesn't include, so speech-to-text normally runs on the GPU through PyTorch instead, with the same no-speech filter. On an RTX 5070, processing went from about 810 ms per sentence on the CPU to about 90 ms (speech-to-text ~90 ms and voice ~50 ms in parallel), using about 1.9 GB of video memory. Set Processor to **Automatic** if you use both launchers: each then uses what it has.
+
 ## Run
 
 ```sh
 uv run python -m emotion_overlay      # or: python -m emotion_overlay
 ```
 
-The first start downloads the models (~400 MB, one time). After that, startup is offline.
+The first start downloads the models (~1.8 GB, one time; 1.3 GB of it is the tone-of-voice model). After that, startup is offline.
 
 1. Open **http://127.0.0.1:8765/setup**.
 2. Pick your microphone and click **Use this mic**.
@@ -121,34 +145,36 @@ URL options: `?fit=cover` fills the source and crops instead of letterboxing. `?
 |---|---|---|
 | Always say "neutral" (majority baseline) | 20.0% | — |
 | Words only | 21.9% | 7.9% |
-| Voice only | 21.4% | 11.9% |
-| Combined, app default (voice weight 0.25) | 22.2% | 8.5% |
-| Combined, voice weight 0.6 (chosen on other speakers) | **30.1%** | **17.4%** |
-| Combined + per-speaker calibration (weight 0.25) | 25.6% | 12.0% |
+| Voice only | **40.1%** | **35.5%** |
+| Combined, app default (voice weight 0.25) | 22.5% | 9.0% |
+| Combined, voice weight chosen on other speakers (1.0) | 40.1% | 35.5% |
+| Combined + per-speaker calibration (weight 0.25) | 25.8% | 13.1% |
+| *Previous voice model (`superb/hubert-base-superb-er`), voice only* | *21.4%* | *11.9%* |
 
 Chance is 14.3% across 7 emotions. What the numbers show:
 
-- **The words carry nothing here, by design.** The text model says "neutral" for almost every clip, so it barely beats the majority baseline. One small signal leaks through: when Whisper hears a rising voice it writes a "?", and the text model reads that as surprise. That happened on 16 clips, and 14 of them really were surprise.
-- **The voice model doesn't transfer to this dataset.** It scores about 65% on 4-class IEMOCAP, the dataset it was trained on (per the SUPERB benchmark), but here it answers "ang" for 79% of all clips. I ruled out the two likeliest preprocessing causes with experiments on a balanced sample: loudness normalisation made it worse, and a proper anti-aliased resampler changed nothing (30.6% vs 31.2%). This is domain shift between recording setups and actors.
-- **Fusion helps only when the voice is weighted heavily.** Raising the voice weight to 0.6 adds about 8 points. That held when the weight was picked on half the speakers and tested on the other half (both splits chose 0.6). The app still defaults to 0.25, because in real use the words usually do carry the emotion. That was 79% words-only vs 36% voice-only in the developer's own 14-line calibration.
-- **Calibration helps a little but can't fix domain shift.** Fitting on 2 clips per emotion per speaker and testing on the rest gives +1.7 points accuracy and +3 points macro-F1.
-- **Acted datasets overestimate real-world accuracy.** Actors exaggerate emotions far more than streamers talking naturally do. Even on acted speech, an off-the-shelf voice model is weak here, so treat the voice feature as a light nudge, not a detector.
+- **The words carry nothing here, by design.** The text model says "neutral" for almost every clip, so it barely beats the majority baseline. One small signal leaks through: when Whisper hears a rising voice it writes a "?", and the text model reads that as surprise.
+- **The voice model transfers to unseen actors.** Trained only on podcast speech, it still gets 40% across 7 emotions on RAVDESS, nearly double the previous model (21%), and its macro-F1 is three times higher. The previous model answered "ang" for 79% of clips. This one is best at anger (79% recall), fear (70%), neutral (48%) and surprise (38%). It mostly misses acted joy (7%) and disgust (2%), which it hears as fear or anger.
+- **At the default weight, the words dominate.** At 0.25, a confident "neutral" from the words outweighs the voice, so the combined score barely moves on this dataset. On these neutral sentences the best weight is all voice (both speaker splits chose 1.0). The app still defaults to 0.25, because in real use the words usually do carry the emotion (79% words-only in the developer's own calibration). Calibration measures this for your voice and recommends a weight.
+- **Calibration helps the voice most.** Fitting on 2 clips per emotion per speaker and testing on the rest takes the voice model alone from 40% to 44%. The combined score gains less at weight 0.25, for the reason above.
+- **Acted datasets overestimate real-world accuracy.** Actors exaggerate emotions far more than streamers talking naturally do. The new model was trained on natural speech, so it should suit streaming better than acted benchmarks suggest, but that's untested until it's measured on real recordings (`eval record`).
 
 ### Latency
 
 Measured from the end of speech to a new emotion being decided, over all 1,440 clips. Hardware: Ryzen (AMD Family 25), 16 threads, CPU only, faster-whisper `base.en`.
 
-| Median | p90 | p95 | Max | Target |
+| | Median | p90 | p95 | Max |
 |---|---|---|---|---|
-| 712 ms | 840 ms | 868 ms | 1,022 ms | < 2,000 ms |
+| First reaction (words) | 817 ms | 830 ms | 835 ms | 1,140 ms |
+| Words + voice | 1,255 ms | 1,413 ms | 1,473 ms | 1,770 ms |
 
-That's the 400 ms pause that ends a sentence, plus processing: speech-to-text (284 ms) and the voice model (301 ms) in parallel, then the text model (20 ms). The overlay's fade (300 ms by default) comes on top. With the transformers fallback for Whisper, add roughly 0.1–0.9 s.
+Both are under the 2-second target. The first reaction is the 400 ms pause that ends a sentence, plus speech-to-text (394 ms) and the text model (22 ms). The voice model (855 ms on CPU while Whisper runs) is slower than speech-to-text, so the app shows the words-only result first and refines it when the voice is done. During long sentences, **Update while talking** reacts before the pause. The overlay's fade (300 ms by default) comes on top. With the transformers fallback for Whisper, add roughly 0.1–0.9 s.
 
 ### Reproduce
 
 ```sh
 uv run python -m emotion_overlay.eval download ravdess          # 208 MB, checksum-verified
-uv run python -m emotion_overlay.eval --config config.example.yaml run ravdess   # ~10 min on CPU
+uv run python -m emotion_overlay.eval --config config.example.yaml run ravdess   # ~20 min on CPU
 ```
 
 Raw model outputs are cached in `predictions.jsonl` (not committed), so `... eval report ravdess` re-analyses them in seconds. RAVDESS is © Livingstone & Russo 2018 under CC BY-NC-SA 4.0; its audio is downloaded on demand and never committed.
@@ -160,6 +186,7 @@ To test with **your own voice**, run `uv run python -m emotion_overlay.eval reco
 - **Audio stays in memory.** Utterances are processed and discarded. Nothing is written to disk unless you turn on `debug.save_audio` or `debug.save_transcripts`.
 - **Transcripts aren't logged** at the default log level. Only timings and the detected emotion are.
 - **No network after first run**, except when you add an image from a link (then only that link is fetched). Models load from the local cache first, and the Hub is contacted only if a model is missing. Telemetry and transformers' background "safetensors conversion" lookups are disabled. To check, run with `--log-level DEBUG` and look for HTTP requests (there are none).
+- **Hotkeys don't watch your keyboard.** They're registered with Windows' `RegisterHotKey`, which only reports the app's own key combinations. There's no keyboard hook. Turn them off with `hotkeys.enabled: false`.
 - **The overlay never receives transcripts.** Only the setup page subscribes to debug data.
 - **Calibration keeps only numbers.** `data/calibration.json` holds the fitted offsets and accuracy figures, not your recordings or words. It's also left out of setup exports, because it's tuned to your voice.
 
@@ -201,7 +228,7 @@ To build locally: `uv sync --group build`, then `uv run python -m PyInstaller pa
 
 ## Known limitations
 
-- **The voice model is weak outside its training data:** it only knows 4 moods, and on RAVDESS it leans heavily toward "angry" (see [Evaluation](#evaluation)). It's weighted low by default. A stronger or fine-tuned voice model is the clearest next step, and the `audio_emotion.model` and `label_map` settings exist so one can be swapped in.
+- **The voice model is big:** a 1.3 GB download, and about 0.9 s per sentence on CPU while Whisper runs. A GPU makes it much faster (see [NVIDIA GPU](#nvidia-gpu-optional-much-faster)). On RAVDESS it rarely recognises acted joy or disgust (see [Evaluation](#evaluation)), so for those the words do the work. Any transformers audio-classification model can be swapped in with `audio_emotion.model` and `label_map`.
 - **Calibration is small:** 14 lines can only nudge the models, not retrain them, and the recommended settings are only as good as how naturally you read the lines. It's fitted at the recommended (or current) voice weight, so recalibrate if you change that weight a lot.
 - **English only** for now. The language is a config value, not hard-coded, but the default emotion model is English.
 - **Microphone by index:** if you plug in or remove audio devices, re-select your mic on the setup page.

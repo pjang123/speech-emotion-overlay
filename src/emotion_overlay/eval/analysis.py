@@ -31,7 +31,7 @@ Record = dict[str, Any]
 LabelMap = Mapping[str, Sequence[str]]
 MODES = ("text", "voice", "fused")
 SWEEP = tuple(round(w * 0.1, 1) for w in range(11))
-FOUR_CLASS = ("anger", "joy", "neutral", "sadness")  # what the voice model can express
+FOUR_CLASS = ("anger", "joy", "neutral", "sadness")  # what 4-mood voice models can express
 
 
 def _top(scores: Mapping[str, float]) -> str:
@@ -193,8 +193,14 @@ def breakdown(
 
 
 def latency(records: Sequence[Record], min_silence_ms: int) -> dict[str, Any]:
-    """Speech end -> new state = VAD end-of-speech wait + processing (ASR ∥ voice, then text)."""
+    """Speech end -> new state = VAD end-of-speech wait + processing (ASR ∥ voice, then text).
+
+    The app shows the words-only result first when the voice model is still busy, so
+    the first reaction comes after ASR + text; the combined one after the slower side.
+    """
     totals = [min_silence_ms + r["timings"]["processing_ms"] for r in records]
+    words = [min_silence_ms + r["timings"]["asr_ms"] + r["timings"]["text_ms"] for r in records]
+    first = [min(w, t) for w, t in zip(words, totals, strict=True)]
 
     def stats(values: Sequence[float]) -> dict[str, float]:
         return {
@@ -213,6 +219,7 @@ def latency(records: Sequence[Record], min_silence_ms: int) -> dict[str, Any]:
     return {
         "vad_wait_ms": min_silence_ms,
         "speech_end_to_state_ms": stats(totals),
+        "speech_end_to_first_state_ms": stats(first),
         "medians": components,
     }
 

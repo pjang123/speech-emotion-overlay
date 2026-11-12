@@ -113,7 +113,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     factory = None if args.no_audio else (lambda events: Pipeline(config, events))
-    app = create_app(config, config_path=config_path, engine_factory=factory)
+    hotkey_factory = None
+    if config.hotkeys.enabled:
+        from emotion_overlay.hotkeys import HotkeyListener
+
+        hotkey_factory = lambda on_press: HotkeyListener(config.hotkeys.modifiers, on_press)  # noqa: E731
+    app = create_app(
+        config, config_path=config_path, engine_factory=factory, hotkey_factory=hotkey_factory
+    )
 
     print(f"\n  Setup page:  {setup_url}")
     print(f"  OBS overlay: http://{browse_host}:{port}/overlay")

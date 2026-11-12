@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
@@ -15,12 +15,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
-from emotion_overlay.audio.capture import InputDevice, list_input_devices
+from emotion_overlay.audio.capture import InputDevice, list_input_devices, pick_device
 from emotion_overlay.backup import BackupError, export_setup, read_setup
 from emotion_overlay.calibration import Calibration, CalibrationError, CalibrationStore, SpeechStats
+from emotion_overlay.compute import GpuInfo, gpu_info
 from emotion_overlay.config import AppConfig, save_config
 from emotion_overlay.emotions import EMOTIONS, IMAGE_GROUPS, NEUTRAL, Scores
 from emotion_overlay.fetch import FetchError, fetch_image
+from emotion_overlay.hotkeys import HotkeyListener, describe, key_emotion
 from emotion_overlay.images import FORMATS, TIERS, ImageStore, ImageValidationError
 from emotion_overlay.paths import web_dir
 from emotion_overlay.pipeline import PipelineEvents
@@ -50,6 +52,7 @@ class AudioEngine(Protocol):
     def stop(self) -> None: ...
     def set_device(self, device: int | None) -> None: ...
     def set_listening(self, listening: bool) -> None: ...
+    def reload_models(self) -> bool: ...
     def set_calibration(self, calibration: Calibration | None) -> None: ...
     def set_calibration_listener(
         self, listener: Callable[[Scores, Scores, SpeechStats], None] | None
@@ -63,6 +66,14 @@ class DeviceRequest(BaseModel):
 
 class ListeningRequest(BaseModel):
     listening: bool
+
+
+class ComputeRequest(BaseModel):
+    device: Literal["cpu", "cuda", "auto"]
+
+
+class ManualRequest(BaseModel):
+    emotion: str | None  # None = back to detected emotions
 
 
 class SaveCalibrationRequest(BaseModel):
@@ -103,6 +114,8 @@ def create_app(
     config_path: Path | None = None,
     engine_factory: Callable[[PipelineEvents], AudioEngine] | None = None,
     device_lister: Callable[[], list[InputDevice]] = list_input_devices,
+    hotkey_factory: Callable[[Callable[[int], None]], HotkeyListener] | None = None,
+    gpu_probe: Callable[[], GpuInfo] = gpu_info,
 ) -> FastAPI:
     store = ImageStore(config.data_dir, config.uploads.max_bytes, config.uploads.max_pixels)
     hub = Hub()
@@ -136,6 +149,29 @@ def create_app(
         if found:
             fire_trigger(*found)
 
+    def set_manual(emotion: str | None) -> None:
+        hub.publish(display.set_manual(emotion))
+
+    def on_hotkey(digit: int) -> None:
+        emotion = key_emotion(digit)
+        set_manual(None if emotion == display.manual else emotion)  # same key again releases
+
+    hotkeys = hotkey_factory(on_hotkey) if hotkey_factory else None
+
+    def manual_info() -> dict[str, Any]:
+        problem = None
+        if hotkeys is None:
+            problem = "turned off in config.yaml (hotkeys.enabled)"
+        elif hotkeys.error:
+            problem = hotkeys.error
+        elif hotkeys.failed:
+            taken = ", ".join(str(d) for d in hotkeys.failed)
+            problem = f"another app already uses the keys for {taken}"
+        return {
+            "emotion": display.manual,
+            "hotkeys": {"modifiers": describe(config.hotkeys.modifiers), "problem": problem},
+        }
+
     def persist() -> None:
         if config_path:
             save_config(config, config_path)
@@ -167,9 +203,13 @@ def create_app(
         hub.bind_loop(asyncio.get_running_loop())
         if engine:
             engine.start()
+        if hotkeys:
+            hotkeys.start()
         try:
             yield
         finally:
+            if hotkeys:
+                hotkeys.stop()
             if engine:
                 engine.stop()
 
@@ -217,13 +257,30 @@ def create_app(
         except Exception as exc:
             log.exception("Could not list audio devices")
             raise HTTPException(503, f"Could not list audio devices: {exc}") from exc
-        return {"devices": [asdict(d) for d in found], "selected": config.audio.device}
+        audio = config.audio
+        if audio.device_name is None and audio.device is not None:
+            # Saved before mics were remembered by name: remember this one's name now.
+            current = next((d for d in found if d.index == audio.device), None)
+            if current:
+                audio.device_name, audio.device_hostapi = current.name, current.hostapi
+                persist()
+        selected = pick_device(found, audio.device, audio.device_name, audio.device_hostapi)
+        return {
+            "devices": [asdict(d) for d in found],
+            "selected": selected,
+            "missing": audio.device_name if audio.device_name and selected is None else None,
+        }
 
     @app.put("/api/device")
     def set_device(body: DeviceRequest) -> dict[str, Any]:
-        if body.device is not None and body.device not in {d.index for d in device_lister()}:
-            raise HTTPException(400, "Unknown input device")
+        chosen = None
+        if body.device is not None:
+            chosen = next((d for d in device_lister() if d.index == body.device), None)
+            if chosen is None:
+                raise HTTPException(400, "Unknown input device")
         config.audio.device = body.device
+        config.audio.device_name = chosen.name if chosen else None
+        config.audio.device_hostapi = chosen.hostapi if chosen else None
         if engine:
             engine.set_device(body.device)
         persist()
@@ -235,6 +292,44 @@ def create_app(
             raise HTTPException(409, "Audio is disabled (started with --no-audio)")
         engine.set_listening(body.listening)
         return engine.status()
+
+    @app.get("/api/manual")
+    def get_manual() -> dict[str, Any]:
+        return manual_info()
+
+    @app.put("/api/manual")
+    def put_manual(body: ManualRequest) -> dict[str, Any]:
+        """Hold an emotion on screen (e.g. from a Stream Deck), or null to release it."""
+        if body.emotion is not None and body.emotion not in EMOTIONS:
+            raise HTTPException(400, f"Unknown emotion '{body.emotion}'")
+        set_manual(body.emotion)
+        return manual_info()
+
+    def compute_info() -> dict[str, Any]:
+        chosen = {config.asr.device, config.classifier.device, config.audio_emotion.device}
+        return {
+            # "mixed" when config.yaml sets the models differently by hand.
+            "device": chosen.pop() if len(chosen) == 1 else "mixed",
+            "gpu": gpu_probe().to_api(),
+            "running": engine.status().get("devices") if engine else None,
+        }
+
+    @app.get("/api/compute")
+    def get_compute() -> dict[str, Any]:
+        return compute_info()
+
+    @app.put("/api/compute")
+    def put_compute(body: ComputeRequest) -> dict[str, Any]:
+        """Run the models on the CPU, the GPU, or the GPU when there is one ("auto")."""
+        if body.device == "cuda" and not (gpu := gpu_probe()).available:
+            raise HTTPException(400, f"The GPU can't be used: {gpu.reason}")
+        before = (config.asr.device, config.classifier.device, config.audio_emotion.device)
+        config.asr.device = config.classifier.device = config.audio_emotion.device = body.device
+        if engine and before != (body.device,) * 3 and not engine.reload_models():
+            config.asr.device, config.classifier.device, config.audio_emotion.device = before
+            raise HTTPException(409, "The models are still loading; try again in a moment")
+        persist()
+        return compute_info()
 
     @app.get("/api/settings")
     def get_settings() -> dict[str, Any]:

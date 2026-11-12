@@ -19,7 +19,7 @@ EDITABLE: dict[str, frozenset[str] | None] = {
     "state": None,
     "display": None,
     "vad": None,
-    "classifier": frozenset({"window_seconds", "slang"}),
+    "classifier": frozenset({"window_seconds", "slang", "interim_s"}),
     "audio_emotion": frozenset({"enabled", "weight"}),  # model/label_map need a restart
 }
 

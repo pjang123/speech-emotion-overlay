@@ -13,10 +13,11 @@ from emotion_overlay.calibration import (
     calibrate,
     fit_bias,
 )
-from emotion_overlay.config import DEFAULT_AUDIO_LABEL_MAP
+from emotion_overlay.config import OLD_AUDIO_LABEL_MAP
 from emotion_overlay.emotions import EMOTIONS
 
-MAP = DEFAULT_AUDIO_LABEL_MAP
+# A 4-mood voice model's map (one label stands for several emotions), the harder case.
+MAP = OLD_AUDIO_LABEL_MAP
 
 
 def test_prompts_cover_every_emotion_without_repeats_in_a_row() -> None:
@@ -105,3 +106,13 @@ def test_store_roundtrip_and_validation(tmp_path: Path) -> None:
     assert store.load(["neu"]) is None
     store.delete()
     assert not (tmp_path / "calibration.json").exists()
+
+
+def test_calibration_for_another_voice_model_is_ignored(tmp_path: Path) -> None:
+    store = CalibrationStore(tmp_path)
+    store.save(Calibration({"neu": 0.5, "ang": -1.0}, {"joy": -0.2}, 0.25, 14, "x"))
+    assert store.load(["neu", "ang"]) is not None and not store.stale
+    assert store.load(["neutral", "anger"]) is None  # the voice model's labels changed
+    assert store.stale
+    store.save(Calibration({}, {"joy": -0.2}, 0.0, 14, "x"))  # made with voice off: still fine
+    assert store.load(["neutral", "anger"]) is not None and not store.stale

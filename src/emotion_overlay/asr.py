@@ -12,6 +12,7 @@ from typing import Protocol
 
 import numpy as np
 
+from emotion_overlay.compute import torch_device
 from emotion_overlay.config import AsrConfig
 from emotion_overlay.model_cache import load_cached
 
@@ -28,33 +29,25 @@ class Transcriber(Protocol):
     def transcribe(self, audio: np.ndarray) -> str: ...
 
 
-def _devices(config: AsrConfig) -> list[str]:
-    return ["cuda", "cpu"] if config.device == "auto" else [config.device]
-
-
 class FasterWhisperTranscriber:
     backend = "faster-whisper"
 
-    def __init__(self, config: AsrConfig) -> None:
+    def __init__(self, config: AsrConfig, device: str = "cpu") -> None:
         from faster_whisper import WhisperModel
 
         self._config = config
-        candidates = _devices(config)
-        for device in candidates:
-            try:
-                log.info("Loading Whisper '%s' (faster-whisper, %s)...", config.model, device)
-                self._model = load_cached(
-                    WhisperModel, config.model, device=device, compute_type=config.compute_type
-                )
-                # Warm-up: surfaces missing CUDA/cuDNN libraries now rather than mid-stream,
-                # and makes the first real utterance as fast as the rest.
-                self.transcribe(WARMUP)
-                self.device = device
-                return
-            except Exception as exc:
-                if device == candidates[-1]:
-                    raise
-                log.warning("Whisper on %s failed (%s); falling back to CPU", device, exc)
+        # int8 weights with float16 maths is CTranslate2's fast mode on NVIDIA GPUs.
+        compute_type = config.compute_type
+        if device == "cuda" and compute_type == "int8":
+            compute_type = "int8_float16"
+        log.info("Loading Whisper '%s' (faster-whisper, %s)...", config.model, device)
+        self._model = load_cached(
+            WhisperModel, config.model, device=device, compute_type=compute_type
+        )
+        # Warm-up: surfaces missing CUDA/cuDNN libraries now rather than mid-stream,
+        # and makes the first real utterance as fast as the rest.
+        self.transcribe(WARMUP)
+        self.device = device
 
     def transcribe(self, audio: np.ndarray) -> str:
         segments, _info = self._model.transcribe(
@@ -75,23 +68,28 @@ class FasterWhisperTranscriber:
 class TransformersWhisperTranscriber:
     backend = "transformers"
 
-    def __init__(self, config: AsrConfig) -> None:
-        import torch
+    def __init__(self, config: AsrConfig, device: str = "cpu") -> None:
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
         self._config = config
         # faster-whisper short names ("base.en") map to the original OpenAI checkpoints.
         name = config.model if "/" in config.model else f"openai/whisper-{config.model}"
-        use_cuda = "cuda" in _devices(config) and torch.cuda.is_available()
-        self.device = "cuda" if use_cuda else "cpu"
+        self.device = device
         log.info("Loading Whisper '%s' (transformers, %s)...", name, self.device)
         self._processor = load_cached(WhisperProcessor.from_pretrained, name)
         model = load_cached(WhisperForConditionalGeneration.from_pretrained, name)
         self._model = model.to(self.device).eval()
         self._english_only = name.endswith(".en")
-        self.transcribe(WARMUP)
+        # Whisper writes "you" or "Thank you." for noise. faster-whisper drops text whose
+        # no-speech probability is high; do the same here. (generate()'s own
+        # no_speech_threshold fails for short audio in current transformers.)
+        tokenizer = self._processor.tokenizer
+        ids = [tokenizer.convert_tokens_to_ids(t) for t in ("<|nospeech|>", "<|nocaptions|>")]
+        known = [i for i in ids if i is not None and i != tokenizer.unk_token_id]
+        self._no_speech_id = known[0] if known else None
+        self.transcribe(WARMUP, skip_if_silent=False)  # warm up text generation too
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray, skip_if_silent: bool = True) -> str:
         import torch
 
         features = self._processor(
@@ -103,14 +101,42 @@ class TransformersWhisperTranscriber:
             if self._config.language:
                 kwargs["language"] = self._config.language
         with torch.inference_mode():
-            ids = self._model.generate(features, **kwargs)
+            encoded = self._model.get_encoder()(features)  # shared by both steps below
+            silent = self.no_speech_prob(encoded) >= self._config.no_speech_threshold
+            if silent and skip_if_silent:
+                return ""
+            ids = self._model.generate(encoder_outputs=encoded, **kwargs)
         return self._processor.batch_decode(ids, skip_special_tokens=True)[0].strip()
+
+    def no_speech_prob(self, encoded: object) -> float:
+        """Probability of the no-speech token right after start-of-transcript, as in
+        OpenAI's Whisper and faster-whisper."""
+        import torch
+
+        if self._no_speech_id is None:
+            return 0.0
+        start = self._model.generation_config.decoder_start_token_id
+        decoder_input = torch.tensor([[start]], device=self.device)
+        logits = self._model(encoder_outputs=encoded, decoder_input_ids=decoder_input).logits
+        return torch.softmax(logits[0, -1].float(), dim=-1)[self._no_speech_id].item()
 
 
 def load_transcriber(config: AsrConfig) -> Transcriber:
+    """Pick backend and device. Order: faster-whisper on the GPU, Whisper via PyTorch on
+    the GPU, faster-whisper on the CPU, Whisper via PyTorch on the CPU; the GPU ones
+    only if the GPU is wanted and usable."""
+    device = torch_device(config.device, "speech-to-text")
+    if config.backend in ("auto", "faster-whisper") and device == "cuda":
+        try:
+            return FasterWhisperTranscriber(config, "cuda")
+        except Exception as exc:  # e.g. missing cuBLAS/cuDNN, or the DLL blocked
+            log.warning("faster-whisper can't use the GPU (%s)", exc)
+            if config.backend == "auto":
+                log.info("Using Whisper through PyTorch on the GPU instead")
+                return TransformersWhisperTranscriber(config, "cuda")
     if config.backend in ("auto", "faster-whisper"):
         try:
-            return FasterWhisperTranscriber(config)
+            return FasterWhisperTranscriber(config, "cpu")
         except (ImportError, OSError) as exc:
             if config.backend == "faster-whisper":
                 raise
@@ -119,4 +145,4 @@ def load_transcriber(config: AsrConfig) -> Transcriber:
                 "blocking CTranslate2. Using the transformers backend instead (somewhat slower).",
                 exc,
             )
-    return TransformersWhisperTranscriber(config)
+    return TransformersWhisperTranscriber(config, device)

@@ -1,9 +1,10 @@
 import pytest
 
 from emotion_overlay.classify.fusion import apply_bias, fuse, map_voice_scores, score_utterance
-from emotion_overlay.config import DEFAULT_AUDIO_LABEL_MAP, AudioEmotionConfig
+from emotion_overlay.config import OLD_AUDIO_LABEL_MAP, AudioEmotionConfig
 
-MAP = DEFAULT_AUDIO_LABEL_MAP
+# A 4-mood voice model's map (one label stands for several emotions), the harder case.
+MAP = OLD_AUDIO_LABEL_MAP
 
 
 def test_voice_group_is_split_by_text_scores() -> None:

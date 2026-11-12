@@ -306,12 +306,20 @@ class CalibrationStore:
     def __init__(self, root: Path) -> None:
         self._path = root / "calibration.json"
         self._lock = threading.Lock()
+        self.stale = False  # last load found a calibration made for another voice model
 
     def load(self, voice_labels: Sequence[str]) -> Calibration | None:
+        self.stale = False
         if not self._path.exists():
             return None
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
+            old_voice = raw.get("voice_bias")
+            if isinstance(old_voice, dict) and old_voice and not set(old_voice) & set(voice_labels):
+                # Fitted to a different voice model's labels: its corrections don't apply.
+                log.warning("Calibration was made for another voice model; ignoring it")
+                self.stale = True
+                return None
             return Calibration(
                 voice_bias=_clean_bias(raw.get("voice_bias"), voice_labels),
                 final_bias=_clean_bias(raw.get("final_bias"), EMOTIONS),

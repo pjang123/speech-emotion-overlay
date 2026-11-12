@@ -2,6 +2,7 @@
 
 import logging
 
+from emotion_overlay.compute import torch_device
 from emotion_overlay.config import ClassifierConfig
 from emotion_overlay.emotions import EMOTIONS, Scores
 from emotion_overlay.model_cache import load_cached
@@ -14,10 +15,8 @@ class TextEmotionClassifier:
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-        use_cuda = config.device == "cuda" or (
-            config.device == "auto" and torch.cuda.is_available()
-        )
-        self._device = torch.device("cuda" if use_cuda else "cpu")
+        self.device = torch_device(config.device, "text emotion model")
+        self._device = torch.device(self.device)
         log.info(
             "Loading emotion model '%s' on %s (downloads on first run)...",
             config.model,

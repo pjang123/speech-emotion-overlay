@@ -47,6 +47,11 @@ class CalibrationController:
         self._applied: list[Recommendation] = []
         self._error: str | None = None
         self.saved = store.load(list(config.audio_emotion.label_map))
+        if store.stale:
+            self._error = (
+                "Your calibration was made for the previous tone-of-voice model, so it's "
+                "switched off. Calibrate again to tune the new one to your voice."
+            )
         if engine is not None:
             engine.set_calibration(self.saved)
 

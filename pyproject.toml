@@ -19,6 +19,12 @@ dependencies = [
     "torch>=2.3",
 ]
 
+[project.optional-dependencies]
+# NVIDIA GPU support (Windows/Linux): `uv sync --extra gpu`, about 3 GB. Then pick
+# "GPU" on the setup page. Without it, PyTorch is the CPU-only build.
+gpu = ["torch>=2.3"]
+cpu = ["torch>=2.3"]  # the default anyway; exists so uv can keep the two builds apart
+
 [project.scripts]
 emotion-overlay = "emotion_overlay.main:main"
 
@@ -27,6 +33,17 @@ build = [
     "pyinstaller>=6.11",
 ]
 dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27"]
+
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu130", extra = "gpu", marker = "sys_platform != 'darwin'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"  # CUDA 13 builds; cover RTX 50-series (Blackwell) and older cards
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]

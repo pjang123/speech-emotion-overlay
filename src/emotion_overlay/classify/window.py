@@ -16,6 +16,13 @@ class TranscriptWindow:
         self._prune(now)
         return " ".join(text for _, text in self._items)
 
+    def preview(self, partial: str, now: float) -> str:
+        """The window as it would be with `partial` (a sentence still being spoken)
+        added, without storing it: the finished sentence is added later."""
+        if self.seconds <= 0:
+            return partial
+        return " ".join(t for t in (self.text(now), partial) if t)
+
     def clear(self) -> None:
         self._items.clear()
 

@@ -116,3 +116,38 @@ def test_trigger_images_never_used_for_emotions(store: ImageStore) -> None:
     store.add(make_image(), "trigger", "t.png")
     display = DisplayState(store, DisplayConfig())
     assert display.apply(joy())["image"] is None
+
+
+def test_manual_emotion_holds_until_released(store: ImageStore) -> None:
+    store.add(make_image(), "neutral", "n.png")
+    angry = store.add(make_image(), "anger", "a.png")
+    happy = store.add(make_image(), "joy", "j.png")
+    display = DisplayState(store, DisplayConfig())
+    held = display.set_manual("anger")
+    assert (held["emotion"], held["image"], held["manual"]) == ("anger", angry.url, "anger")
+    # Detected emotions keep being tracked underneath without showing...
+    during = display.apply(joy(), new_utterance=True)
+    assert (during["emotion"], during["image"], during["detected"]) == ("anger", angry.url, "joy")
+    assert during["play"] == held["play"]  # ...or restarting the held GIF
+    released = display.set_manual(None)
+    assert (released["emotion"], released["image"], released["manual"]) == ("joy", happy.url, None)
+    assert released["play"] > held["play"]
+
+
+def test_trigger_shows_over_a_held_emotion(store: ImageStore) -> None:
+    angry = store.add(make_image(), "anger", "a.png")
+    gg = store.add(make_image(), "trigger", "gg.png")
+    display = DisplayState(store, DisplayConfig())
+    display.set_manual("anger")
+    _, token = display.trigger(gg, "gg")
+    assert display.message()["image"] == gg.url
+    assert display.end_trigger(token)["image"] == angry.url
+
+
+def test_held_emotion_prefers_strong_images_and_survives_deletion(store: ImageStore) -> None:
+    store.add(make_image(), "anger", "mild.png", tier="mild")
+    strong = store.add(make_image(), "anger", "strong.png", tier="strong")
+    display = DisplayState(store, DisplayConfig())
+    assert display.set_manual("anger")["image"] == strong.url
+    store.remove(strong.id)
+    assert display.refresh()["image"] != strong.url

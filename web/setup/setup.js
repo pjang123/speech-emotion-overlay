@@ -48,6 +48,8 @@ const SETTINGS = [
         min: 0.5, max: 600, step: 0.5 },
       { path: "classifier.window_seconds", label: "Text window (s)", type: "number", min: 0, max: 60, step: 1,
         help: "How much recent speech is judged together. 0 = only the last sentence." },
+      { path: "classifier.interim_s", label: "Update while talking (s)", type: "number", min: 0, max: 10, step: 0.5,
+        help: "Re-checks your words every this many seconds while you're still talking, so the image can change before you pause. 0 = only after each sentence." },
       { path: "classifier.slang", label: "Understand slang", type: "checkbox",
         help: "Reads slang as plain English before judging the emotion, e.g. \"lol\" as \"haha\" and \"that was fire\" as \"that was amazing\"." },
       { path: "vad.min_silence_ms", label: "Pause that ends a sentence (ms)", type: "number",
@@ -63,7 +65,7 @@ const SETTINGS = [
     note: "A second model listens to how you sound, not just your words, e.g. to catch sarcasm or a laugh.",
     fields: [
       { path: "audio_emotion.enabled", label: "Use tone of voice", type: "checkbox",
-        help: "The first time you turn this on it downloads a ~380 MB model." },
+        help: "The first time you turn this on it downloads a ~1.3 GB model." },
       { path: "audio_emotion.weight", label: "Voice weight", type: "number", min: 0, max: 1, step: 0.05,
         help: "How much the voice counts compared with the words. 0 = words only, 1 = voice only." },
     ],
@@ -138,7 +140,11 @@ async function loadDevices() {
     );
     select.replaceChildren(el("option", { value: "", textContent: "System default input" }), ...options);
     select.value = data.selected === null ? "" : String(data.selected);
-    flash("device-msg", "");
+    if (data.missing) {
+      flash("device-msg", `Your saved mic "${data.missing}" isn't connected, so the system default is used.`, true);
+    } else {
+      flash("device-msg", "");
+    }
   } catch (err) {
     flash("device-msg", `Could not list microphones: ${err.message}`, true);
   }
@@ -151,6 +157,46 @@ async function applyDevice() {
     flash("device-msg", "Microphone saved.");
   } catch (err) {
     flash("device-msg", err.message, true);
+  }
+}
+
+// --- processor (CPU / GPU) ---------------------------------------------------------
+
+const DEVICE_NAMES = { cuda: "GPU", cpu: "CPU" };
+
+function renderRunning(devices, switching) {
+  if (!devices) return;
+  const parts = [["speech-to-text", devices.speech], ["words", devices.text], ["voice", devices.voice]]
+    .filter(([, device]) => device)
+    .map(([what, device]) => `${what} ${DEVICE_NAMES[device] ?? device}`);
+  $("compute-running").textContent = switching
+    ? "Switching... the current models keep running until the new ones are loaded."
+    : parts.length ? `Running now: ${parts.join(" · ")}` : "";
+}
+
+async function loadCompute() {
+  const info = await api("/api/compute");
+  const select = $("compute");
+  select.value = info.device;
+  select.querySelector('option[value="cuda"]').disabled = !info.gpu.available;
+  $("compute-gpu").textContent = info.gpu.available
+    ? `GPU found: ${info.gpu.name}.`
+    : `GPU not available: ${info.gpu.reason}.`;
+  renderRunning(info.running, false);
+}
+
+async function applyCompute() {
+  const select = $("compute");
+  select.disabled = true;
+  try {
+    // Status messages over the WebSocket report the switch as it happens.
+    await sendJson("/api/compute", "PUT", { device: select.value });
+    flash("compute-msg", select.value === "cpu" ? "Moving the models to the CPU..." : "Loading the models...");
+  } catch (err) {
+    flash("compute-msg", err.message, true);
+    await loadCompute();
+  } finally {
+    select.disabled = false;
   }
 }
 
@@ -707,7 +753,7 @@ function recommendationList(recommendations) {
 function accuracyTable(accuracy) {
   const rows = [
     ["Words only", accuracy.text],
-    ["Voice only (4 broad moods)", accuracy.voice],
+    ["Voice only", accuracy.voice],
     ["Combined, before calibration", accuracy.before],
     ["Combined, after calibration*", accuracy.after],
   ];
@@ -850,12 +896,15 @@ async function importSetup() {
 
 function renderState(msg) {
   $("emotion").textContent = msg.emotion;
-  $("confidence").textContent = msg.confidence ? `${Math.round(msg.confidence * 100)}%` : "";
+  $("confidence").textContent = msg.confidence && !msg.manual ? `${Math.round(msg.confidence * 100)}%` : "";
   $("reason").textContent = msg.trigger
     ? `word trigger “${msg.trigger}”`
-    : msg.reason === "scores"
-      ? `${msg.tier}`
-      : msg.reason;
+    : msg.manual
+      ? `held by hand (detected: ${msg.detected})`
+      : msg.reason === "scores"
+        ? `${msg.tier}`
+        : msg.reason;
+  renderManual(msg.manual ?? null);
   const img = $("preview-img");
   img.hidden = !msg.image;
   $("preview-empty").hidden = Boolean(msg.image);
@@ -867,6 +916,12 @@ function renderStatus(msg) {
     msg.state
   ];
   setPill("engine", msg.message, kind);
+  renderRunning(msg.devices, msg.switching);
+  if (ui.wasSwitching && !msg.switching) {
+    const failed = (msg.message ?? "").startsWith("Couldn't");
+    flash("compute-msg", failed ? msg.message : "Done.", failed);
+  }
+  ui.wasSwitching = Boolean(msg.switching);
 
   if (msg.voice_model && msg.voice_model !== ui.voiceModel) {
     ui.voiceModel = msg.voice_model;
@@ -908,6 +963,7 @@ function renderDebug(msg) {
     return;
   }
   $("window").textContent = msg.window || "—";
+  if (msg.interim) $("transcript").textContent = `${msg.transcript} …(still talking)`;
   const voice = msg.voice ?? {};
   const topVoice = Object.entries(voice).sort((a, b) => b[1] - a[1])[0];
   $("voice").textContent = topVoice
@@ -929,10 +985,59 @@ function renderDebug(msg) {
   });
   $("scores").replaceChildren(...rows);
   const t = msg.timings;
+  if (msg.interim) {
+    $("voice").textContent = "Voice: checked when the sentence ends";
+    $("timings").textContent = `${msg.duration_s}s so far · words checked in ${msg.took_ms} ms`;
+    return;
+  }
   $("timings").textContent =
     `${msg.duration_s}s utterance${msg.forced ? " (cut)" : ""} · ASR ${t.asr_ms} ms · ` +
     `text ${t.classify_ms} ms · voice ${t.voice_ms ?? "–"} ms · ` +
-    `speech end → state ${t.speech_end_to_state_ms} ms`;
+    `speech end → state ${t.speech_end_to_state_ms} ms` +
+    (t.words_shown_ms != null ? ` (words-only result shown at ${t.words_shown_ms} ms)` : "");
+}
+
+// --- hold an emotion by hand ------------------------------------------------------
+
+function renderManual(active) {
+  for (const button of $("manual-buttons").children) {
+    const on = button.dataset.emotion === (active ?? "");
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-pressed", String(on));
+  }
+}
+
+async function setManual(emotion) {
+  try {
+    // The state message that follows over the WebSocket highlights the button.
+    await sendJson("/api/manual", "PUT", { emotion });
+  } catch (err) {
+    flash("manual-hint", err.message, true);
+  }
+}
+
+async function loadManual() {
+  const auto = el("button", { type: "button", className: "secondary", textContent: "Automatic" });
+  auto.dataset.emotion = "";
+  auto.addEventListener("click", () => setManual(null));
+  const buttons = ui.emotions.map((emotion) => {
+    const button = el("button", { type: "button", className: "secondary", textContent: emotion });
+    button.dataset.emotion = emotion;
+    button.addEventListener("click", () => setManual(emotion));
+    return button;
+  });
+  $("manual-buttons").replaceChildren(auto, ...buttons);
+
+  const info = await api("/api/manual");
+  renderManual(info.emotion);
+  const keys = info.hotkeys.modifiers;
+  const list = ui.emotions.map((emotion, i) => `${i + 1} ${emotion}`).join(", ");
+  flash(
+    "manual-hint",
+    info.hotkeys.problem
+      ? `Keeps showing that emotion until you press Automatic. Hotkeys are off: ${info.hotkeys.problem}.`
+      : `Keeps showing that emotion until you press Automatic. Hotkeys work in any app: ${keys} + ${list}; ${keys} + 0 = automatic (or press the same key again).`,
+  );
 }
 
 // --- init -----------------------------------------------------------------------
@@ -947,6 +1052,7 @@ async function init() {
   });
   $("device-apply").addEventListener("click", applyDevice);
   $("device-refresh").addEventListener("click", loadDevices);
+  $("compute").addEventListener("change", applyCompute);
   $("listen-toggle").addEventListener("click", toggleListening);
   $("settings-reset").addEventListener("click", resetSettings);
   $("import-btn").addEventListener("click", () => $("import-file").click());
@@ -958,7 +1064,7 @@ async function init() {
   const groups = await api("/api/emotions");
   ui.emotions = groups.emotions;
   ui.imageGroups = groups.image_groups ?? groups.emotions;
-  await Promise.all([loadImages(), loadDevices(), loadSettings()]);
+  await Promise.all([loadImages(), loadDevices(), loadSettings(), loadManual(), loadCompute()]);
 
   connect("/ws?debug=1", {
     onOpen: () => setPill("conn", "connected", "ok"),

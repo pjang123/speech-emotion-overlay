@@ -51,6 +51,7 @@ hiddenimports = [
     *collect_submodules("transformers.models.roberta"),
     *collect_submodules("transformers.models.hubert"),
     *collect_submodules("transformers.models.wav2vec2"),
+    *collect_submodules("transformers.models.wavlm"),  # Vox-Profile voice model backbone
 ]
 
 excludes = ["tkinter", "matplotlib", "IPython", "pytest", "notebook", "PyQt5", "PySide6"]

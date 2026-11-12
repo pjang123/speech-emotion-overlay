@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from emotion_overlay.config import DEFAULT_AUDIO_LABEL_MAP
+from emotion_overlay.config import OLD_AUDIO_LABEL_MAP
 from emotion_overlay.eval.analysis import analyse, predict, speaker_cv_weight
 from emotion_overlay.eval.datasets import load_wav, mine, ravdess
 from emotion_overlay.eval.download import extract_ravdess
@@ -20,7 +20,8 @@ from emotion_overlay.eval.metrics import (
 from emotion_overlay.eval.record import script
 from emotion_overlay.eval.report import render
 
-MAP = DEFAULT_AUDIO_LABEL_MAP
+# A 4-mood voice model's map (one label stands for several emotions), the harder case.
+MAP = OLD_AUDIO_LABEL_MAP
 
 
 # --- metrics ------------------------------------------------------------------------

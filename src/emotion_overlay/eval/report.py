@@ -60,7 +60,7 @@ def render(name: str, summary: dict[str, Any], meta: dict[str, str]) -> str:
         four = summary["four_class"]
         out += [
             "",
-            "### Only the 4 emotions the voice model knows (anger, joy, neutral, sadness)",
+            "### Only anger, joy, neutral and sadness (comparable with 4-mood voice models)",
             "",
             *_table(
                 ["Mode", "Accuracy", "Macro-F1"],
@@ -114,7 +114,7 @@ def render(name: str, summary: dict[str, Any], meta: dict[str, str]) -> str:
         if cal.get("voice_before") is not None:
             out += [
                 "",
-                "The voice correction on its own (voice model, 4 broad moods): "
+                "The voice correction on its own (voice model, its own labels): "
                 f"{pct(cal['voice_before'])} → **{pct(cal['voice_after'])}** accuracy "
                 "on the same held-out clips.",
             ]
@@ -141,15 +141,24 @@ def render(name: str, summary: dict[str, Any], meta: dict[str, str]) -> str:
 
     lat = summary["latency"]
     total = lat["speech_end_to_state_ms"]
+    first = lat.get("speech_end_to_first_state_ms", total)  # older summaries lack it
     med = lat["medians"]
+    keys = ("median", "p90", "p95", "max")
     out += [
         "",
         "## Latency (end of speech → new emotion)",
         "",
         *_table(
-            ["Median", "p90", "p95", "Max"],
-            [[f"{total[k]:.0f} ms" for k in ("median", "p90", "p95", "max")]],
+            ["", "Median", "p90", "p95", "Max"],
+            [
+                ["First reaction (words)", *[f"{first[k]:.0f} ms" for k in keys]],
+                ["Words + voice", *[f"{total[k]:.0f} ms" for k in keys]],
+            ],
         ),
+        "",
+        "When the voice model is still working after the words are scored, the app shows "
+        "the words-only result first and replaces it with the combined one when the voice "
+        "is done.",
         "",
         f"= {lat['vad_wait_ms']} ms waiting for the pause that ends a sentence + processing "
         f"(median {med['processing_ms']:.0f} ms: speech-to-text {med['asr_ms']:.0f} ms and voice "

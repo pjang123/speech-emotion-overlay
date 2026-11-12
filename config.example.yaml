@@ -16,7 +16,7 @@ asr:                      # Whisper speech-to-text
                           # auto tries faster-whisper (fastest) and falls back to transformers,
                           # e.g. when Windows Smart App Control blocks CTranslate2
   model: base.en         # tiny.en | base.en | small.en | small | ... (bigger = slower, more accurate)
-  device: cpu             # cpu | cuda | auto (auto tries GPU, falls back to CPU)
+  device: auto            # auto | cuda | cpu; the setup page's Processor setting sets all three
   compute_type: int8
   language: en            # null = auto-detect (needs a multilingual model, not *.en)
   beam_size: 1
@@ -24,22 +24,26 @@ asr:                      # Whisper speech-to-text
 
 classifier:
   model: j-hartmann/emotion-english-distilroberta-base
-  device: cpu             # cpu | cuda | auto
+  device: auto            # GPU needs `uv sync --extra gpu`; auto uses it when present
   window_seconds: 6.0     # classify the transcript from the last N seconds; 0 = latest utterance only
   slang: true             # read slang as plain English first ("lol" -> "haha"); see src/emotion_overlay/slang.py
+  interim_s: 1.0          # while still talking, re-check the words every N s of speech; 0 = only after each sentence
 
 audio_emotion:            # tone of voice, fused with the text model
-  enabled: true           # live-editable; first enable downloads ~380 MB
-  model: superb/hubert-base-superb-er   # restart to change
-  device: cpu
+  enabled: true           # live-editable; first enable downloads ~1.3 GB
+  model: tiantiaf/wavlm-large-categorical-emotion   # restart to change; any transformers audio-classification model also works
+  device: auto
   weight: 0.25            # live-editable; voice share of the combined score (0 = words only)
-  label_map:              # voice model label -> emotions it stands for (each emotion once)
-    neu: [neutral]
-    hap: [joy, surprise]
-    ang: [anger, disgust, fear]
-    sad: [sadness]
+  label_map:              # voice model label -> emotions it stands for (each emotion once; others ignored)
+    anger: [anger]
+    disgust: [disgust]
+    fear: [fear]
+    happiness: [joy]
+    neutral: [neutral]
+    sadness: [sadness]
+    surprise: [surprise]
 
-# state, display, vad, classifier.window_seconds/slang and audio_emotion.enabled/weight
+# state, display, vad, classifier.window_seconds/slang/interim_s and audio_emotion.enabled/weight
 # can also be changed live on the setup page.
 state:
   confidence_threshold: 0.5
@@ -67,6 +71,10 @@ uploads:
 server:
   host: 127.0.0.1         # keep on localhost; nothing here is meant to be exposed to a network
   port: 8765
+
+hotkeys:                  # Windows only; restart to apply. Only these key combos are seen, nothing else typed
+  enabled: true
+  modifiers: ctrl+alt+shift   # + 1..7 holds anger, disgust, fear, joy, neutral, sadness, surprise; + 0 = automatic again
 
 debug:                    # privacy: both off by default; nothing is written to disk unless enabled
   save_audio: false       # writes each utterance as WAV to data/debug/
