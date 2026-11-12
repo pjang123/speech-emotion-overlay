@@ -8,6 +8,7 @@ Two interchangeable backends:
 """
 
 import logging
+import sys
 from typing import Protocol
 
 import numpy as np
@@ -20,6 +21,35 @@ log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16_000
 WARMUP = np.zeros(SAMPLE_RATE // 2, dtype=np.float32)
+
+# Why faster-whisper can't use the GPU in this process, once known. CTranslate2 needs
+# NVIDIA's CUDA 12 cuBLAS, which the CUDA 13 PyTorch build doesn't include. The first
+# attempt without it fails fast, but a second attempt in the same process can hang
+# for good (seen when switching CPU -> GPU), so never call into it twice.
+_faster_whisper_gpu_problem: str | None = None
+CUBLAS = "cublas64_12.dll" if sys.platform == "win32" else "libcublas.so.12"
+
+
+def faster_whisper_gpu_problem() -> str | None:
+    """Why faster-whisper can't run on the GPU, or None if it may. Checks for the
+    CUDA libraries itself instead of letting CTranslate2 find out."""
+    global _faster_whisper_gpu_problem
+    if _faster_whisper_gpu_problem is None:
+        import ctypes
+
+        try:
+            import ctranslate2  # noqa: F401 - on Windows this adds its DLL folders
+
+            ctypes.CDLL(CUBLAS)
+        except (ImportError, OSError) as exc:
+            log.debug("CUDA library check failed: %s", exc)
+            _faster_whisper_gpu_problem = f"NVIDIA's {CUBLAS} for CUDA 12 isn't installed"
+    return _faster_whisper_gpu_problem
+
+
+def _remember_gpu_problem(problem: str) -> None:
+    global _faster_whisper_gpu_problem
+    _faster_whisper_gpu_problem = problem
 
 
 class Transcriber(Protocol):
@@ -127,13 +157,17 @@ def load_transcriber(config: AsrConfig) -> Transcriber:
     only if the GPU is wanted and usable."""
     device = torch_device(config.device, "speech-to-text")
     if config.backend in ("auto", "faster-whisper") and device == "cuda":
-        try:
-            return FasterWhisperTranscriber(config, "cuda")
-        except Exception as exc:  # e.g. missing cuBLAS/cuDNN, or the DLL blocked
-            log.warning("faster-whisper can't use the GPU (%s)", exc)
-            if config.backend == "auto":
-                log.info("Using Whisper through PyTorch on the GPU instead")
-                return TransformersWhisperTranscriber(config, "cuda")
+        problem = faster_whisper_gpu_problem()
+        if problem is None:
+            try:
+                return FasterWhisperTranscriber(config, "cuda")
+            except Exception as exc:  # e.g. missing cuDNN, or the DLL blocked
+                problem = str(exc)
+                _remember_gpu_problem(problem)
+        log.warning("faster-whisper can't use the GPU (%s)", problem)
+        if config.backend == "auto":
+            log.info("Using Whisper through PyTorch on the GPU instead")
+            return TransformersWhisperTranscriber(config, "cuda")
     if config.backend in ("auto", "faster-whisper"):
         try:
             return FasterWhisperTranscriber(config, "cpu")
