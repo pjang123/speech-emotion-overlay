@@ -324,8 +324,12 @@ def create_app(
         if body.device == "cuda" and not (gpu := gpu_probe()).available:
             raise HTTPException(400, f"The GPU can't be used: {gpu.reason}")
         before = (config.asr.device, config.classifier.device, config.audio_emotion.device)
+        changed = before != (body.device,) * 3
+        if engine and changed and not engine.status().get("ready", True):
+            # Checked before touching the config: startup reads it while loading.
+            raise HTTPException(409, "The models are still loading; try again in a moment")
         config.asr.device = config.classifier.device = config.audio_emotion.device = body.device
-        if engine and before != (body.device,) * 3 and not engine.reload_models():
+        if engine and changed and not engine.reload_models():
             config.asr.device, config.classifier.device, config.audio_emotion.device = before
             raise HTTPException(409, "The models are still loading; try again in a moment")
         persist()

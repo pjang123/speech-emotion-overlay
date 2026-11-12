@@ -94,6 +94,10 @@ class Pipeline:
         self._listening = True  # runtime only: every start begins listening
         self._control_lock = threading.Lock()  # serialises start/stop/device changes
         self._reload_lock = threading.Lock()  # one CPU/GPU switch at a time
+        # Set once startup has loaded every model. A switch during startup would load
+        # models alongside it: concurrent first imports of transformers fail, and the
+        # rest of startup would already use the new device, leaving models split.
+        self._booted = threading.Event()
 
     # --- control (called from the server) ---------------------------------
 
@@ -140,7 +144,7 @@ class Pipeline:
         """Reload the models with the current `device` settings (CPU/GPU switch), in
         the background. The old models keep working until the new ones are ready.
         Returns False if models are still loading or a switch is already running."""
-        if self._transcriber is None or not self._reload_lock.acquire(blocking=False):
+        if not self._booted.is_set() or not self._reload_lock.acquire(blocking=False):
             return False
         threading.Thread(target=self._reload, name="model-reload", daemon=True).start()
         return True
@@ -203,6 +207,7 @@ class Pipeline:
             else None,
             "devices": self.devices(),
             "switching": self._reload_lock.locked(),
+            "ready": self._booted.is_set(),  # startup has loaded every model
             "pending_utterances": self._utt_q.qsize(),
             "dropped_audio_blocks": self._dropped_blocks,
         }
@@ -232,6 +237,7 @@ class Pipeline:
             self._set_status("loading", "Loading tone-of-voice model (first run downloads it)...")
             self._load_voice_model()
 
+        self._booted.set()
         for target, name in ((self._vad_loop, "vad"), (self._asr_loop, "asr")):
             threading.Thread(target=target, name=name, daemon=True).start()
         with self._control_lock:
