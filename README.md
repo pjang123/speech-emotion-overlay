@@ -6,8 +6,8 @@ Everything runs on your own PC. Your audio never leaves it.
 
 - Recognises **7 emotions**: anger, disgust, fear, joy, neutral, sadness and surprise.
 - Reads both **what you say** (speech-to-text, then a text emotion model) and **how you say it** (a tone-of-voice model), then combines them.
-- Reacts in about **0.5 s** after you stop talking on an NVIDIA GPU, or about **0.8 s** on a CPU. During long sentences it can change before you pause.
-- Your own images and GIFs, word triggers ("gg", "bruh"), slang, hotkeys, live settings and per-voice calibration, all set up in a local web page.
+- Reacts in about **0.55 s** after you stop talking on an NVIDIA GPU, or about **0.8 s** on a CPU. During long sentences it can change before you pause.
+- Your own images and GIFs, effects, word triggers ("gg", "bruh"), slang, hotkeys, OBS scene and filter switching, live settings and per-voice calibration, all set up in a local web page.
 
 ## Contents
 
@@ -19,6 +19,7 @@ Everything runs on your own PC. Your audio never leaves it.
 - [Add the overlay to OBS](#add-the-overlay-to-obs)
 - [The setup page](#the-setup-page)
 - [Hotkeys and Stream Deck](#hotkeys-and-stream-deck)
+- [OBS scenes and filters](#obs-scenes-and-filters)
 - [Configuration file](#configuration-file)
 - [Command-line options](#command-line-options)
 - [How it works](#how-it-works)
@@ -29,6 +30,7 @@ Everything runs on your own PC. Your audio never leaves it.
 - [Known limitations](#known-limitations)
 - [Project layout](#project-layout)
 - [Credits](#credits)
+- [License](#license)
 
 ## Features
 
@@ -43,7 +45,8 @@ Everything runs on your own PC. Your audio never leaves it.
 - **CPU or GPU.** Choose where the models run on the setup page. Switching takes effect while the app runs. GPU support is an optional install.
 - **Live settings.** Every display and detection setting can be changed on the setup page while you stream. Changes apply immediately and are saved.
 - **Responsive by default.** The image follows every sentence. Optional anti-flicker controls (smoothing, a hold-off before switching, a minimum time on screen) give a calmer overlay if you want one.
-- **Transitions.** Cross-fade, cut or bounce.
+- **Transitions and effects.** Cross-fade, cut or bounce between images, plus an optional effect per emotion when its image appears: shake, pulse, jump, tremble or droop.
+- **OBS scenes and filters.** The emotion can switch OBS scenes, or turn a filter on (for example a red colour correction for anger), through OBS's built-in WebSocket server.
 - **Your mic is remembered by name,** so plugging in a headset or webcam doesn't switch the app to the wrong input.
 - **Stop/Start listening.** Pausing closes the microphone completely, so Windows' mic-in-use indicator goes off, and the overlay shows your neutral image.
 - **Backup.** Export your whole setup (images, triggers and settings) as one zip, and import it on another PC or share it.
@@ -58,7 +61,7 @@ Everything runs on your own PC. Your audio never leaves it.
 
 ## Install
 
-1. Install uv by following the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/). On Windows, in PowerShell:
+1. Install uv by following the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/). On Windows you can skip this step: the launchers install uv themselves if it's missing. Or, in PowerShell:
 
    ```powershell
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
@@ -100,7 +103,7 @@ On Windows, double-click one of the launchers in the project folder:
 | `run-cpu.bat` | The CPU | `.venv` in the project folder |
 | `run-gpu.bat` | An NVIDIA GPU (or the CPU) | `%LOCALAPPDATA%\emotion-overlay\gpu-venv`, kept separate because it's about 3 GB. The first run installs it |
 
-Both use the same settings, images and calibration, so you can switch between them. Only run one at a time: if one is already running, starting the other just opens its setup page. Close the console window to quit.
+Both install uv first if it isn't there yet, and keep the window open if something fails so you can read the error. Both use the same settings, images and calibration, so you can switch between them. Only run one at a time: if one is already running, starting the other just opens its setup page. Close the console window to quit.
 
 From a terminal, on any system:
 
@@ -109,7 +112,7 @@ uv run python -m emotion_overlay                   # CPU
 uv run --extra gpu python -m emotion_overlay       # GPU: keep --extra gpu, or uv puts the CPU build back
 ```
 
-The first start downloads the models (about 1.8 GB, one time). After that the app starts offline.
+The first start downloads the models (about 1.8 GB, one time; the GPU version also downloads the larger `small.en` speech model, about 1 GB). After that the app starts offline.
 
 ## Quick start
 
@@ -182,7 +185,7 @@ Each trigger has one or more phrases, an image, and a duration (0.5–60 s). Whe
 | When unsure | Keep current image | Keep the current image, or go to neutral |
 | Back to neutral after silence | 3 s | Show neutral after this much silence |
 | Text window | 6 s | How much recent speech is judged together. 0 = only the last sentence |
-| Update while talking | 1 s | Re-check your words this often while you're still talking. 0 = only after each sentence |
+| Update while talking | Automatic | Re-check your words while you're still talking: every 0.5 s on a GPU, every 1 s on a CPU, a fixed interval, or off |
 | Understand slang | On | Read slang as plain English before judging the emotion |
 | Pause that ends a sentence | 400 ms | Shorter reacts faster but may split sentences |
 | Longest chunk of speech | 6 s | Non-stop talking is judged in chunks this long |
@@ -196,6 +199,7 @@ Each trigger has one or more phrases, an image, and a duration (0.5–60 s). Whe
 | Instant-switch lead | 0 (off) | A new emotion that leads by this much switches at once anyway |
 | Minimum time on screen | 0 s (off) | Keep each emotion at least this long |
 | **Emotions without images** | Default image | For each emotion, what to show when it has no images: the default image, or another emotion's images |
+| **Effects** | None | For each emotion, an animation the overlay plays when its image appears: shake, pulse, jump, tremble or droop |
 
 **Reset to defaults** restores all of these. The microphone, images, triggers and calibration are not affected.
 
@@ -250,9 +254,22 @@ The first holds joy; the second goes back to automatic. Other useful endpoints:
 
 Requests from web pages on other sites are refused (see [Security](#security)). Tools like a Stream Deck aren't web pages, so they work.
 
+## OBS scenes and filters
+
+The emotion can also control OBS itself: switch to a scene, and/or turn on a filter, for each emotion. This uses the WebSocket server built into OBS 28 and newer.
+
+1. In OBS: **Tools → WebSocket Server Settings**, tick **Enable WebSocket server**, and click **Show Connect Info** to see the port and password.
+2. On the setup page, in **OBS scenes and filters**: tick **Connect to OBS**, enter the port (usually 4455) and password, and click **Save**. The status line says when it's connected.
+3. For each emotion, pick a scene to switch to, or leave it at "Don't switch".
+4. For filters: add the filters you want to a source in OBS first (for example a **Color Correction** filter called "Angry red" on your overlay's Browser source, turned off). Then choose that source under **Toggle filters on**, and pick a filter for each emotion. When an emotion starts showing, its filter is turned on and the other emotions' filters on that source are turned off.
+
+OBS follows the emotion the overlay shows, including one you hold by hand, but not word triggers. A scene or filter that was renamed or removed in OBS is reported in the status line without disconnecting. If OBS isn't running, the app keeps retrying every few seconds.
+
+The OBS address and password are saved in `config.yaml` on your PC only. They're never sent to the setup page, and they're left out of backups, so an imported setup can't make the app connect somewhere else.
+
 ## Configuration file
 
-Settings are saved in `config.yaml`. With `run-cpu.bat`, `run-gpu.bat` or `uv run`, that's in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional; missing ones use their defaults. A few settings can only be changed here, and need a restart: the models, devices other than via the Processor card, the server address, hotkeys, upload limits and debug recording.
+Settings are saved in `config.yaml`. With `run-cpu.bat`, `run-gpu.bat` or `uv run`, that's in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional; missing ones use their defaults. A few settings can only be changed here, and need a restart: the models, devices other than via the Processor card, the server address, hotkeys, upload limits and debug recording. OBS settings have their own card on the setup page.
 
 These are all the settings, with their defaults:
 
@@ -271,7 +288,8 @@ vad:                        # voice activity detection (Silero VAD)
 
 asr:                        # speech-to-text (Whisper)
   backend: auto             # auto | faster-whisper | transformers
-  model: base.en            # any Whisper size, e.g. small.en (slower, more accurate)
+  model: base.en            # used on the CPU; any Whisper size, e.g. small.en (slower, more accurate)
+  gpu_model: small.en       # used when speech-to-text runs on the GPU
   device: auto              # auto | cuda | cpu (the Processor card sets all three devices)
   compute_type: int8        # faster-whisper precision
   language: en
@@ -283,7 +301,7 @@ classifier:                 # emotion from the words
   device: auto
   window_seconds: 6.0       # judge the last N seconds of speech together; 0 = last sentence only
   slang: true               # read slang as plain English first
-  interim_s: 1.0            # re-check while still talking every N s of speech; 0 = off
+  interim_s: null           # re-check while still talking every N s of speech; 0 = off; null = automatic
 
 audio_emotion:              # emotion from tone of voice
   enabled: true
@@ -315,6 +333,7 @@ display:
   new_image_each_utterance: false
   strong_threshold: 0.85
   fallbacks: {}             # e.g. {disgust: anger}: show anger's images for disgust if it has none
+  effects: {}               # e.g. {anger: shake, joy: pulse}; also shake, jump, tremble, droop
 
 uploads:
   max_bytes: 10485760       # 10 MB per image
@@ -328,6 +347,15 @@ server:
 hotkeys:                    # Windows only
   enabled: true
   modifiers: ctrl+alt+shift # any of ctrl, alt, shift, win, joined with +
+
+obs:                        # OBS remote control (see "OBS scenes and filters"); not in backups
+  enabled: false
+  host: 127.0.0.1
+  port: 4455
+  password: ""              # stored here only; never sent to the setup page
+  scenes: {}                # e.g. {anger: Rage scene}
+  filter_source: ""         # source whose filters are toggled
+  filters: {}               # e.g. {anger: Angry red}
 
 debug:                      # privacy: both off; nothing is written to disk unless enabled
   save_audio: false         # save each sentence as a WAV in data/debug/
@@ -368,12 +396,12 @@ flowchart LR
 ```
 
 1. **Splitting speech into sentences.** [Silero VAD](https://github.com/snakers4/silero-vad) scores each 32 ms of audio for speech. A sentence ends after a 400 ms pause, and non-stop speech is cut every 6 s. While a sentence is still going, the part so far is re-checked every second of speech (words only).
-2. **Speech-to-text.** Whisper `base.en` runs through [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU, or when Windows blocks faster-whisper's native library, it runs through 🤗 transformers instead. Either way, text Whisper thinks is noise is dropped; Whisper otherwise "hears" words like "you" in silence.
+2. **Speech-to-text.** Whisper `base.en` runs through [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU the more accurate `small.en` runs through 🤗 transformers instead (about 125 ms per sentence there, against about 1.2 s on a CPU). Transformers is also the fallback when Windows blocks faster-whisper's native library. Either way, text Whisper thinks is noise is dropped; Whisper otherwise "hears" words like "you" in silence.
 3. **Emotion from the words.** [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) scores the last ~6 s of transcript, after slang is rewritten as plain English.
 4. **Emotion from the voice.** [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from [Vox-Profile](https://arxiv.org/abs/2505.14648) is a WavLM-large model trained on MSP-Podcast, which is natural podcast speech rather than actors. It's a simplified, audio-only version of the top system in the INTERSPEECH 2025 speech emotion challenge. It was published for the authors' own code rather than as a standard transformers model, so `classify/vox_profile.py` rebuilds its small inference path and loads the weights directly. It runs on the same audio at the same time as Whisper. If it's still busy when the words are scored, the words-only result is shown first and then refined, so it never delays the first reaction.
 5. **Combining.** `final = (1 − w) · words + w · voice`, with `w = 0.25` by default. Calibration adds two small sets of per-emotion corrections in log space: one undoes a skew in the voice model for your voice and mic, and one adjusts the combined result.
 6. **Deciding what to show** (`state_machine.py`, pure and unit-tested). The top emotion is shown if it clears the minimum confidence. Silence returns to neutral. The optional anti-flicker rules (smoothing, a hold-off, a lead that switches instantly, a minimum display time) are off by default, so the image follows every sentence.
-7. **Showing it.** The image picker applies tiers, rotation and fallbacks, and the server sends the result over a WebSocket to the overlay page in OBS.
+7. **Showing it.** The image picker applies tiers, rotation and fallbacks, and the server sends the result over a WebSocket to the overlay page in OBS, which plays the emotion's effect if it has one. If OBS control is on, OBS switches scene or filters too.
 
 The server is FastAPI on `127.0.0.1:8765`. The web pages are plain JavaScript and CSS, with no build step.
 
@@ -404,9 +432,9 @@ Measured from the end of a sentence to the new emotion being decided. On top of 
 | | Pause that ends a sentence | Speech-to-text | Voice model | Total (median) |
 |---|---|---|---|---|
 | CPU (16-thread Ryzen) | 400 ms | ~300–400 ms | ~500–850 ms, in parallel | ~0.7–0.8 s first reaction, ~0.8–1.3 s with voice |
-| GPU (RTX 5070) | 400 ms | ~70–100 ms | ~30–50 ms, in parallel | ~0.5 s |
+| GPU (RTX 5070) | 400 ms | ~125 ms (`small.en`) | ~30–50 ms, in parallel | ~0.55 s |
 
-On the CPU the words-only result appears first, and the tone-of-voice result follows. On the GPU both arrive together. On a GPU the models use about 1.9 GB of video memory. During long sentences, **Update while talking** reacts before you pause.
+On the CPU the words-only result appears first, and the tone-of-voice result follows. On the GPU both arrive together. On a GPU the models use about 2–3 GB of video memory. The GPU uses the larger `small.en` Whisper model: on clear speech both sizes get nearly every word right, and `small.en` makes fewer mistakes on casual, fast or noisy speech. During long sentences, **Update while talking** reacts before you pause.
 
 ## Privacy
 
@@ -416,6 +444,7 @@ On the CPU the words-only result appears first, and the tone-of-voice result fol
 - **Hotkeys don't watch your keyboard.** They're registered with Windows' `RegisterHotKey`, which only reports the app's own key combinations. There's no keyboard hook. Turn them off with `hotkeys.enabled: false`.
 - **The overlay never receives transcripts.** Only the setup page gets them.
 - **Calibration keeps only numbers.** `data/calibration.json` holds fitted corrections and accuracy figures, not your recordings or words. It's left out of backups.
+- **OBS control is off unless you turn it on.** Then the app connects only to the OBS address you enter, and sends only scene and filter changes. The OBS password is kept in `config.yaml` and never sent to the setup page.
 - **Your files stay local.** `config.yaml` and `data/` (images, triggers, calibration) are in the project folder and are excluded from git.
 
 ## Security
@@ -432,7 +461,7 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 | Script injection through file names or transcripts | The pages never insert HTML from data. A strict Content Security Policy allows only the app's own scripts |
 | A malicious backup zip (zip slip, zip bomb, disguised files) | Nothing is extracted by its path in the zip. Only expected entries are read, into memory, with limits on count and size. Every image is re-validated. Everything is checked before anything changes |
 | "Add from link" used to reach your network (router, localhost, cloud metadata) | Only http/https to **public** addresses, re-checked on every redirect, with no system proxy. Size-capped, and validated like an upload |
-| A shared setup that changes risky settings | Imports only apply display and detection settings. The server address, debug recording, models and limits are ignored |
+| A shared setup that changes risky settings | Imports only apply display and detection settings. The server address, OBS connection, debug recording, models and limits are ignored |
 
 ## Troubleshooting
 
@@ -461,7 +490,9 @@ If you start the app by hand, use `uv run --extra gpu ...`. A plain `uv run` rei
 
 **Hotkeys don't work.** They're Windows only. The setup page lists any combinations another app already uses. Change `hotkeys.modifiers` in `config.yaml` and restart.
 
-**The first start is slow.** It downloads about 1.8 GB of models once. Later starts load them from the cache.
+**OBS won't connect.** Check that OBS is running, that **Enable WebSocket server** is ticked in **Tools → WebSocket Server Settings**, and that the port and password match **Show Connect Info**. "OBS refused the connection" means the password is wrong.
+
+**The first start is slow.** It downloads about 1.8 GB of models once, plus about 1 GB for `small.en` the first time the GPU is used. Later starts load them from the cache.
 
 ## Known limitations
 
@@ -475,6 +506,7 @@ If you start the app by hand, use `uv run --extra gpu ...`. A plain `uv run` rei
 
 ```
 run-cpu.bat, run-gpu.bat   Windows launchers (CPU, and NVIDIA GPU in its own environment)
+LICENSE                    MIT licence
 pyproject.toml, uv.lock    Dependencies (the "gpu" extra is the CUDA build of PyTorch)
 src/emotion_overlay/
   main.py                  Command line and startup
@@ -489,6 +521,7 @@ src/emotion_overlay/
   images.py, fetch.py      Image store and validation; safe "add from link"
   compute.py               CPU/GPU detection
   hotkeys.py               Windows global hotkeys
+  obs.py                   OBS remote control (obs-websocket v5)
   settings.py, config.py   Settings that can change live; the config file
   backup.py                Export and import of your setup
   server/                  FastAPI app, WebSocket hub, image picker, security checks
@@ -506,3 +539,7 @@ Your own files, created when you use the app: `config.yaml` (settings) and `data
 - Emotion from voice: [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from Vox-Profile ([paper](https://arxiv.org/abs/2505.14648)), under the OpenRAIL licence on its model card
 - Evaluation data: [RAVDESS](https://zenodo.org/records/1188976), © Livingstone & Russo 2018, CC BY-NC-SA 4.0. Not included in this repository
 - Built with [FastAPI](https://fastapi.tiangolo.com/), [PyTorch](https://pytorch.org/), [sounddevice](https://python-sounddevice.readthedocs.io/) and [Pillow](https://python-pillow.org/)
+
+## License
+
+[MIT](LICENSE). The models are downloaded from Hugging Face and come with their own licences (see [Credits](#credits)).

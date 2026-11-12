@@ -793,3 +793,43 @@ table.accuracy td {
   border-color: var(--accent);
   color: var(--accent-text, #fff);
 }
+
+/* --- OBS scenes and filters --- */
+.obs-connection input[type="text"],
+.obs-connection input[type="number"],
+.obs-connection input[type="password"] {
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  background: var(--card);
+  color: var(--text);
+}
+
+.obs-connection input[type="text"] {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.obs-connection input[type="number"] {
+  width: 90px;
+}
+
+.obs-connection input[type="password"] {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.obs-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 14px;
+}
+
+.obs-row.head {
+  color: var(--muted);
+  font-size: 12px;
+}

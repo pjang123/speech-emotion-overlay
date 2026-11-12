@@ -120,6 +120,10 @@ class StateConfig(BaseModel):
     min_display_s: float = Field(0.0, ge=0.0, le=60.0)
 
 
+# Short animations the overlay can play when an emotion's image appears.
+EFFECTS: tuple[str, ...] = ("shake", "pulse", "jump", "tremble", "droop")
+
+
 class DisplayConfig(BaseModel):
     transition: Literal["fade", "cut", "bounce"] = "fade"
     fade_ms: int = Field(300, ge=0, le=5000)
@@ -127,6 +131,17 @@ class DisplayConfig(BaseModel):
     new_image_each_utterance: bool = False
     strong_threshold: float = Field(0.85, ge=0.0, le=1.0)  # "strong" tier at or above this
     fallbacks: dict[str, str] = Field(default_factory=dict)
+    effects: dict[str, str] = Field(default_factory=dict)  # emotion -> effect; none by default
+
+    @field_validator("effects")
+    @classmethod
+    def _known_effects(cls, value: dict[str, str]) -> dict[str, str]:
+        for emotion, effect in value.items():
+            if emotion not in EMOTIONS:
+                raise ValueError(f"unknown emotion '{emotion}' in effects")
+            if effect not in EFFECTS:
+                raise ValueError(f"unknown effect '{effect}' (use {', '.join(EFFECTS)})")
+        return value
 
     @field_validator("fallbacks")
     @classmethod
@@ -165,6 +180,32 @@ class HotkeyConfig(BaseModel):
         return value.lower().replace(" ", "")
 
 
+class ObsConfig(BaseModel):
+    """Drive OBS through its WebSocket server (OBS 28+: Tools -> WebSocket Server Settings).
+
+    Not a live "setting": changed through its own API and left out of setup exports,
+    so an imported setup can't point the app at another machine.
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = Field(4455, ge=1, le=65535)
+    password: str = Field("", max_length=256)  # kept in config.yaml on this PC only
+    scenes: dict[str, str] = Field(default_factory=dict)  # emotion -> scene to switch to
+    filter_source: str = Field("", max_length=256)  # source whose filters are toggled
+    filters: dict[str, str] = Field(default_factory=dict)  # emotion -> filter to turn on
+
+    @field_validator("scenes", "filters")
+    @classmethod
+    def _emotion_names(cls, value: dict[str, str]) -> dict[str, str]:
+        for emotion, name in value.items():
+            if emotion not in EMOTIONS:
+                raise ValueError(f"unknown emotion '{emotion}'")
+            if not name or len(name) > 256:
+                raise ValueError(f"bad OBS name for {emotion}")
+        return value
+
+
 class DebugConfig(BaseModel):
     save_audio: bool = False
     save_transcripts: bool = False
@@ -188,6 +229,7 @@ class AppConfig(BaseModel):
     uploads: UploadConfig = Field(default_factory=UploadConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     hotkeys: HotkeyConfig = Field(default_factory=HotkeyConfig)
+    obs: ObsConfig = Field(default_factory=ObsConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
     data_dir: Path = Path("data")
 

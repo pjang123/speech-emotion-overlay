@@ -12,18 +12,19 @@ from typing import Annotated, Any, Literal, Protocol
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.websockets import WebSocketDisconnect
 
 from emotion_overlay.audio.capture import InputDevice, list_input_devices, pick_device
 from emotion_overlay.backup import BackupError, export_setup, read_setup
 from emotion_overlay.calibration import Calibration, CalibrationError, CalibrationStore, SpeechStats
 from emotion_overlay.compute import GpuInfo, gpu_info
-from emotion_overlay.config import AppConfig, save_config
+from emotion_overlay.config import AppConfig, ObsConfig, save_config
 from emotion_overlay.emotions import EMOTIONS, IMAGE_GROUPS, NEUTRAL, Scores
 from emotion_overlay.fetch import FetchError, fetch_image
 from emotion_overlay.hotkeys import HotkeyListener, describe, key_emotion
 from emotion_overlay.images import FORMATS, TIERS, ImageStore, ImageValidationError
+from emotion_overlay.obs import ObsController, ObsError
 from emotion_overlay.paths import web_dir
 from emotion_overlay.pipeline import PipelineEvents
 from emotion_overlay.server.calibration import CalibrationController
@@ -72,6 +73,19 @@ class ComputeRequest(BaseModel):
     device: Literal["cpu", "cuda", "auto"]
 
 
+class ObsConnectionRequest(BaseModel):
+    enabled: bool
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(ge=1, le=65535)
+    password: str | None = Field(None, max_length=256)  # None = keep the saved one
+
+
+class ObsMappingRequest(BaseModel):
+    scenes: dict[str, str] | None = None
+    filter_source: str | None = None
+    filters: dict[str, str] | None = None
+
+
 class ManualRequest(BaseModel):
     emotion: str | None  # None = back to detected emotions
 
@@ -116,30 +130,40 @@ def create_app(
     device_lister: Callable[[], list[InputDevice]] = list_input_devices,
     hotkey_factory: Callable[[Callable[[int], None]], HotkeyListener] | None = None,
     gpu_probe: Callable[[], GpuInfo] = gpu_info,
+    obs_factory: Callable[[ObsConfig, Callable[[dict[str, Any]], None]], ObsController]
+    | None = None,
 ) -> FastAPI:
     store = ImageStore(config.data_dir, config.uploads.max_bytes, config.uploads.max_pixels)
     hub = Hub()
     display = DisplayState(store, config.display)
-    hub.publish(display.message())
+    obs = obs_factory(config.obs, hub.publish) if obs_factory else None
+
+    def show(message: dict[str, Any]) -> None:
+        """Publish a state message to the overlay, and let OBS follow the emotion."""
+        hub.publish(message)
+        if obs is not None:
+            obs.show(message["emotion"])
+
+    show(display.message())
 
     triggers = TriggerStore(config.data_dir)
     for stale in [t for t in triggers.all() if store.get(t.image_id) is None]:
         triggers.remove(stale.id)  # its image was removed while the app wasn't running
 
     def on_state(state: EmotionState, new_utterance: bool) -> None:
-        hub.publish(display.apply(state, new_utterance))
+        show(display.apply(state, new_utterance))
 
     def fire_trigger(trigger: Trigger, phrase: str) -> bool:
         image = store.get(trigger.image_id)
         if image is None:
             return False
         message, token = display.trigger(image, phrase)
-        hub.publish(message)
+        show(message)
 
         def end() -> None:
             ended = display.end_trigger(token)
             if ended:
-                hub.publish(ended)
+                show(ended)
 
         hub.call_later(trigger.duration_s, end)
         return True
@@ -150,7 +174,7 @@ def create_app(
             fire_trigger(*found)
 
     def set_manual(emotion: str | None) -> None:
-        hub.publish(display.set_manual(emotion))
+        show(display.set_manual(emotion))
 
     def on_hotkey(digit: int) -> None:
         emotion = key_emotion(digit)
@@ -191,7 +215,7 @@ def create_app(
         except SettingsError as exc:
             raise CalibrationError(f"could not apply settings: {exc}") from exc
         persist()
-        hub.publish(display.refresh())
+        show(display.refresh())
 
     calibration = CalibrationController(
         config, CalibrationStore(config.data_dir), engine, hub.publish, apply_patch
@@ -205,9 +229,14 @@ def create_app(
             engine.start()
         if hotkeys:
             hotkeys.start()
+        if obs:
+            obs.start()
+            hub.publish(obs.status())
         try:
             yield
         finally:
+            if obs:
+                obs.stop()
             if hotkeys:
                 hotkeys.stop()
             if engine:
@@ -335,6 +364,83 @@ def create_app(
         persist()
         return compute_info()
 
+    # --- OBS ----------------------------------------------------------------
+
+    def need_obs() -> ObsController:
+        if obs is None:
+            raise HTTPException(409, "OBS control isn't available")
+        return obs
+
+    def obs_names(
+        request: str, key: str, field: str, data: dict[str, Any] | None = None
+    ) -> list[str]:
+        try:
+            items = need_obs().call(request, data).get(key, [])
+        except ObsError:
+            return []
+        return sorted({str(item.get(field)) for item in items if item.get(field)})
+
+    def obs_info() -> dict[str, Any]:
+        o = config.obs
+        connected = obs is not None and obs.state == "connected"
+        scenes = obs_names("GetSceneList", "scenes", "sceneName") if connected else []
+        inputs = obs_names("GetInputList", "inputs", "inputName") if connected else []
+        filters = (
+            obs_names(
+                "GetSourceFilterList", "filters", "filterName", {"sourceName": o.filter_source}
+            )
+            if connected and o.filter_source
+            else []
+        )
+        return {
+            "available": obs is not None,
+            "enabled": o.enabled,
+            "host": o.host,
+            "port": o.port,
+            "password_set": bool(o.password),  # the password itself never leaves the server
+            "scenes": o.scenes,
+            "filter_source": o.filter_source,
+            "filters": o.filters,
+            "status": obs.status() if obs else None,
+            "obs_scenes": scenes,
+            "obs_sources": sorted(set(scenes) | set(inputs)),  # filters can be on either
+            "obs_filters": filters,
+        }
+
+    @app.get("/api/obs")
+    def get_obs() -> dict[str, Any]:
+        return obs_info()
+
+    @app.put("/api/obs/connection")
+    def put_obs_connection(body: ObsConnectionRequest) -> dict[str, Any]:
+        controller = need_obs()
+        update = {"enabled": body.enabled, "host": body.host.strip(), "port": body.port}
+        if body.password is not None:
+            update["password"] = body.password
+        try:
+            new = ObsConfig.model_validate({**config.obs.model_dump(), **update})
+        except ValidationError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        for name in ("enabled", "host", "port", "password"):
+            setattr(config.obs, name, getattr(new, name))
+        persist()
+        controller.reconnect()
+        return obs_info()
+
+    @app.put("/api/obs/mappings")
+    def put_obs_mappings(body: ObsMappingRequest) -> dict[str, Any]:
+        controller = need_obs()
+        update = body.model_dump(exclude_none=True)
+        try:
+            new = ObsConfig.model_validate({**config.obs.model_dump(), **update})
+        except ValidationError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        for name in ("scenes", "filter_source", "filters"):
+            setattr(config.obs, name, getattr(new, name))
+        persist()
+        controller.mappings_changed()
+        return obs_info()
+
     @app.get("/api/settings")
     def get_settings() -> dict[str, Any]:
         return editable_settings(config)
@@ -346,14 +452,14 @@ def create_app(
         except SettingsError as exc:
             raise HTTPException(400, str(exc)) from exc
         persist()
-        hub.publish(display.refresh())  # transition, fallbacks, tiers may have changed
+        show(display.refresh())  # transition, fallbacks, tiers may have changed
         return editable_settings(config)
 
     @app.post("/api/settings/reset")
     def reset_all_settings() -> dict[str, Any]:
         reset_settings(config)
         persist()
-        hub.publish(display.refresh())
+        show(display.refresh())
         return editable_settings(config)
 
     @app.get("/api/images")
@@ -379,7 +485,7 @@ def create_app(
             record = await asyncio.to_thread(store.add, data, emotion, file.filename, tier)
         except ImageValidationError as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc
-        hub.publish(display.refresh())
+        show(display.refresh())
         return record.to_api()
 
     @app.post("/api/images/from-url", status_code=201)
@@ -392,7 +498,7 @@ def create_app(
             raise HTTPException(400, f"Couldn't add that link: {exc}") from exc
         except ImageValidationError as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc
-        hub.publish(display.refresh())
+        show(display.refresh())
         return record.to_api()
 
     @app.delete("/api/images/{image_id}", status_code=204)
@@ -400,7 +506,7 @@ def create_app(
         if not store.remove(image_id):
             raise HTTPException(404, "Image not found")
         triggers.remove_for_image(image_id)
-        hub.publish(display.refresh())
+        show(display.refresh())
         return Response(status_code=204)
 
     @app.put("/api/images/default")
@@ -409,7 +515,7 @@ def create_app(
             store.set_default(body.image_id)
         except KeyError as exc:
             raise HTTPException(404, "Image not found") from exc
-        hub.publish(display.refresh())
+        show(display.refresh())
         return {"default_image": store.default_id}
 
     # Must come after /api/images/default so "default" isn't taken as an image ID.
@@ -423,7 +529,7 @@ def create_app(
             raise HTTPException(404, "Image not found") from exc
         except ImageValidationError as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc
-        hub.publish(display.refresh())
+        show(display.refresh())
         return record.to_api()
 
     @app.get("/images/{image_id}", include_in_schema=False)
@@ -556,7 +662,7 @@ def create_app(
         except (BackupError, SettingsError, ImageValidationError, TriggerError) as exc:
             raise HTTPException(400, f"Import failed, nothing was changed: {exc}") from exc
         persist()
-        hub.publish(display.refresh())
+        show(display.refresh())
         return {"images": count, "settings": editable_settings(config)}
 
     # --- websocket --------------------------------------------------------

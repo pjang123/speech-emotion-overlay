@@ -157,6 +157,10 @@ class DisplayState:
             "image": shown.url if shown else None,
             "play": self._play,
             "trigger": self._override.phrase if self._override else None,
+            # Played by the overlay when this image starts showing (not for word triggers).
+            "effect": None
+            if self._override
+            else self._config.effects.get(self._manual or self._state.emotion),
             "transition": self._config.transition,
             "fade_ms": self._config.fade_ms,
         }

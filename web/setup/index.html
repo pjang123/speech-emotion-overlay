@@ -136,6 +136,24 @@
       </div>
       <p class="hint">Options: add <code>?fit=cover</code> to fill the source and crop, or <code>?label=1</code> to show the emotion name (handy for testing).</p>
     </section>
+
+    <section class="card">
+      <h2>OBS scenes and filters</h2>
+      <p class="hint">Let the emotion switch OBS scenes or turn filters on and off. In OBS 28 or newer: <strong>Tools → WebSocket Server Settings</strong>, tick <strong>Enable WebSocket server</strong>, and use <strong>Show Connect Info</strong> for the port and password. These settings stay on this PC and aren't included in backups.</p>
+      <div class="row obs-connection">
+        <label class="check"><input type="checkbox" id="obs-enabled"> Connect to OBS</label>
+        <input id="obs-host" type="text" aria-label="OBS address" placeholder="127.0.0.1">
+        <input id="obs-port" type="number" min="1" max="65535" aria-label="OBS port" placeholder="4455">
+        <input id="obs-password" type="password" aria-label="OBS password" autocomplete="off">
+        <button id="obs-save">Save</button>
+      </div>
+      <p id="obs-status" class="mono muted small"></p>
+      <div id="obs-mappings" hidden>
+        <label class="setting"><span class="setting-label">Toggle filters on</span><select id="obs-filter-source" aria-label="Source whose filters are toggled"></select></label>
+        <div id="obs-rows"></div>
+      </div>
+      <p id="obs-msg" class="msg"></p>
+    </section>
   </main>
 </body>
 </html>

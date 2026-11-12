@@ -10,7 +10,7 @@ Message = dict[str, Any]
 
 # Message types that carry transcripts, scores or setup-only state. Only clients
 # that ask for debug data (the setup page) receive them; the OBS overlay never does.
-DEBUG_TYPES = frozenset({"debug", "vad", "calibration"})
+DEBUG_TYPES = frozenset({"debug", "vad", "calibration", "obs"})
 
 
 class Hub:

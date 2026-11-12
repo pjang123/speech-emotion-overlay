@@ -5,6 +5,7 @@ import { connect } from "/static/common/socket.js";
 const params = new URLSearchParams(location.search);
 const layers = [document.getElementById("layer-a"), document.getElementById("layer-b")];
 const label = document.getElementById("label");
+const stage = document.getElementById("stage");
 
 if (params.get("fit") === "cover") layers.forEach((l) => l.classList.add("cover"));
 label.hidden = params.get("label") !== "1";
@@ -44,6 +45,21 @@ async function show(src, fadeMs, transition) {
   front = 1 - front;
 }
 
+// Effects play on the stage around both layers, so they don't fight the bounce
+// transition, which animates the layers themselves.
+const EFFECTS = new Set(["shake", "pulse", "jump", "tremble", "droop"]);
+function playEffect(effect) {
+  for (const name of EFFECTS) stage.classList.remove(`fx-${name}`);
+  if (!EFFECTS.has(effect)) return;
+  void stage.offsetWidth; // restart even if the same effect played last time
+  stage.classList.add(`fx-${effect}`);
+}
+stage.addEventListener("animationend", (e) => {
+  if (e.target === stage) stage.className = "";
+});
+
+let lastPlay = null;
+
 // `play` goes up whenever an image (re)starts showing. Putting it in the URL makes
 // the browser treat it as a fresh image, so animated GIFs start from their first
 // frame instead of resuming wherever their loop happened to be.
@@ -55,5 +71,10 @@ connect("/ws", {
     if (msg.type !== "state") return;
     label.textContent = msg.trigger ? `“${msg.trigger}”` : msg.emotion;
     show(playable(msg), msg.fade_ms ?? 300, msg.transition ?? "fade");
+    if (msg.play !== lastPlay) {
+      // A new image starts showing: play its emotion's effect, if it has one.
+      if (lastPlay !== null && msg.image) playEffect(msg.effect);
+      lastPlay = msg.play;
+    }
   },
 });

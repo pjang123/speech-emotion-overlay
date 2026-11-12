@@ -456,10 +456,11 @@ dependencies = [
     { name = "pyyaml" },
     { name = "silero-vad" },
     { name = "sounddevice" },
-    { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-15-emotion-overlay-gpu'" },
-    { name = "torch", version = "2.15.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
+    { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "torch", version = "2.15.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin' or extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
     { name = "transformers" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -467,7 +468,8 @@ cpu = [
     { name = "torch", version = "2.15.0", source = { registry = "https://pypi.org/simple" } },
 ]
 gpu = [
-    { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
+    { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "torch", version = "2.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
 ]
 
 [package.dev-dependencies]
@@ -497,6 +499,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.3" },
     { name = "transformers", specifier = ">=4.44" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+    { name = "websockets", specifier = ">=13" },
 ]
 provides-extras = ["gpu", "cpu"]
 
@@ -2270,8 +2273,8 @@ version = "6.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
-    { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-15-emotion-overlay-gpu'" },
-    { name = "torch", version = "2.15.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
+    { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "torch", version = "2.15.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin' or extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/32/17/df6bfc8f659fc5c1e082c18275be67c5a581bd2d07734a65b141fc983ccf/silero_vad-6.2.3.tar.gz", hash = "sha256:d7a23b09202be4953915cb9173089bb307eed0418a9bd4794d9ec5af07fa1996", size = 29276676, upload-time = "2026-09-23T11:37:22.208Z" }
 wheels = [
@@ -2360,25 +2363,23 @@ source = { registry = "https://download.pytorch.org/whl/cu130" }
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform != 'darwin'",
     "python_full_version < '3.12' and sys_platform != 'darwin'",
-    "python_full_version >= '3.12' and sys_platform == 'darwin'",
-    "python_full_version < '3.12' and sys_platform == 'darwin'",
 ]
 dependencies = [
     { name = "cuda-bindings", marker = "(python_full_version < '3.15' and sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-gpu') or (python_full_version >= '3.15' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu') or (sys_platform != 'linux' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "cuda-toolkit", version = "13.0.3.0", source = { registry = "https://pypi.org/simple" }, extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "curand", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
-    { name = "filelock", marker = "extra == 'extra-15-emotion-overlay-gpu'" },
-    { name = "fsspec", marker = "extra == 'extra-15-emotion-overlay-gpu'" },
-    { name = "jinja2", marker = "extra == 'extra-15-emotion-overlay-gpu'" },
-    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
-    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "filelock", marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "fsspec", marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "jinja2", marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (python_full_version >= '3.12' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu') or (sys_platform == 'darwin' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (python_full_version < '3.12' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu') or (sys_platform == 'darwin' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "nvidia-cudnn-cu13", version = "9.24.0.43", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "nvidia-cusparselt-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "nvidia-nccl-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "nvidia-nvshmem-cu13", version = "3.4.5", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
-    { name = "setuptools", marker = "extra == 'extra-15-emotion-overlay-gpu'" },
-    { name = "sympy", marker = "extra == 'extra-15-emotion-overlay-gpu'" },
+    { name = "setuptools", marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "sympy", marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "triton", version = "3.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.15' and sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-gpu') or (python_full_version >= '3.15' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu') or (sys_platform != 'linux' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
-    { name = "typing-extensions", marker = "extra == 'extra-15-emotion-overlay-gpu'" },
+    { name = "typing-extensions", marker = "(sys_platform != 'darwin' and extra == 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu130/torch-2.14.1%2Bcu130-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:3a1ce3bce6cd9203825467300f539c5cf76f9b15399d92e7bc35e2a0aac59b9f", upload-time = "2026-09-30T20:20:51Z" },
@@ -2409,25 +2410,29 @@ name = "torch"
 version = "2.15.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.12'",
-    "python_full_version < '3.12'",
+    "python_full_version >= '3.12' and sys_platform == 'darwin' and extra != 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu'",
+    "python_full_version < '3.12' and sys_platform == 'darwin' and extra != 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu'",
+    "python_full_version >= '3.12' and extra == 'extra-15-emotion-overlay-cpu' and extra != 'extra-15-emotion-overlay-gpu'",
+    "python_full_version < '3.12' and extra == 'extra-15-emotion-overlay-cpu' and extra != 'extra-15-emotion-overlay-gpu'",
+    "python_full_version >= '3.12' and extra != 'extra-15-emotion-overlay-cpu' and extra != 'extra-15-emotion-overlay-gpu'",
+    "python_full_version < '3.12' and extra != 'extra-15-emotion-overlay-cpu' and extra != 'extra-15-emotion-overlay-gpu'",
 ]
 dependencies = [
     { name = "cuda-bindings", marker = "(python_full_version < '3.15' and sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-cpu') or (python_full_version < '3.15' and sys_platform == 'linux' and extra != 'extra-15-emotion-overlay-gpu') or (python_full_version >= '3.15' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu') or (sys_platform != 'linux' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "cuda-toolkit", version = "13.2.2", source = { registry = "https://pypi.org/simple" }, extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-cpu') or (sys_platform == 'linux' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
-    { name = "filelock", marker = "extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
-    { name = "fsspec", marker = "extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
-    { name = "jinja2", marker = "extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
-    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and extra == 'extra-15-emotion-overlay-cpu') or (python_full_version < '3.12' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
-    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra == 'extra-15-emotion-overlay-cpu') or (python_full_version >= '3.12' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "filelock", marker = "sys_platform == 'darwin' or extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
+    { name = "fsspec", marker = "sys_platform == 'darwin' or extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
+    { name = "jinja2", marker = "sys_platform == 'darwin' or extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'darwin') or (python_full_version < '3.12' and extra == 'extra-15-emotion-overlay-cpu') or (python_full_version < '3.12' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
+    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform == 'darwin') or (python_full_version >= '3.12' and extra == 'extra-15-emotion-overlay-cpu') or (python_full_version >= '3.12' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "nvidia-cudnn-cu13", version = "9.26.0.51", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-cpu') or (sys_platform == 'linux' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "nvidia-cusparselt-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-cpu') or (sys_platform == 'linux' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "nvidia-nccl-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-cpu') or (sys_platform == 'linux' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
     { name = "nvidia-nvshmem-cu13", version = "3.7.2", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-cpu') or (sys_platform == 'linux' and extra != 'extra-15-emotion-overlay-gpu') or (extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
-    { name = "setuptools", marker = "extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
-    { name = "sympy", marker = "extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
+    { name = "setuptools", marker = "sys_platform == 'darwin' or extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
+    { name = "sympy", marker = "sys_platform == 'darwin' or extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
     { name = "triton", version = "3.9.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.16' and sys_platform == 'linux' and extra == 'extra-15-emotion-overlay-cpu') or (python_full_version < '3.16' and sys_platform == 'linux' and extra != 'extra-15-emotion-overlay-gpu') or (python_full_version >= '3.16' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu') or (sys_platform != 'linux' and extra == 'extra-15-emotion-overlay-cpu' and extra == 'extra-15-emotion-overlay-gpu')" },
-    { name = "typing-extensions", marker = "extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
+    { name = "typing-extensions", marker = "sys_platform == 'darwin' or extra == 'extra-15-emotion-overlay-cpu' or extra != 'extra-15-emotion-overlay-gpu'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2d/a5/fa947e2bbb072933f8c0ad5e02bd11126bcfc2b624fe234ac29a7b63600c/torch-2.15.0-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:e808b63d616a43b326e1a5677d45a2e5babe7a8ce27edb03ddb48e7dd9b6d663", size = 138527954, upload-time = "2026-10-28T15:16:30.29Z" },

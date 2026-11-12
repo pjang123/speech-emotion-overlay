@@ -205,6 +205,112 @@ async function applyCompute() {
   }
 }
 
+// --- OBS scenes and filters ---------------------------------------------------------
+
+function obsSelect(names, value, emptyLabel, onChange) {
+  const options = [["", emptyLabel], ...names.map((n) => [n, n])];
+  if (value && !names.includes(value)) options.push([value, `${value} (not found in OBS)`]);
+  const select = el("select", {}, ...options.map(([v, label]) => el("option", { value: v, textContent: label })));
+  select.value = value ?? "";
+  select.addEventListener("change", () => onChange(select.value));
+  return select;
+}
+
+async function saveObsMappings(patch) {
+  try {
+    renderObs(await sendJson("/api/obs/mappings", "PUT", patch));
+    flash("obs-msg", "Saved.");
+  } catch (err) {
+    flash("obs-msg", err.message, true);
+  }
+}
+
+function renderObs(info) {
+  ui.obs = info;
+  $("obs-enabled").checked = info.enabled;
+  $("obs-host").value = info.host;
+  $("obs-port").value = String(info.port);
+  $("obs-password").value = "";
+  $("obs-password").placeholder = info.password_set
+    ? "Password (saved; type to change)"
+    : "Password (if OBS asks for one)";
+  if (info.status) renderObsStatus(info.status);
+  const connected = info.status?.state === "connected";
+  $("obs-mappings").hidden = !connected;
+  if (!connected) return;
+
+  const source = $("obs-filter-source");
+  const sources = [["", "No filters"], ...info.obs_sources.map((n) => [n, n])];
+  if (info.filter_source && !info.obs_sources.includes(info.filter_source)) {
+    sources.push([info.filter_source, `${info.filter_source} (not found in OBS)`]);
+  }
+  source.replaceChildren(...sources.map(([v, label]) => el("option", { value: v, textContent: label })));
+  source.value = info.filter_source;
+
+  const head = el(
+    "div",
+    { className: "obs-row head" },
+    el("span", { textContent: "Emotion" }),
+    el("span", { textContent: "Switch to scene" }),
+    el("span", { textContent: info.filter_source ? `Turn on filter (on ${info.filter_source})` : "Turn on filter" }),
+  );
+  const rows = ui.emotions.map((emotion) => {
+    const scene = obsSelect(info.obs_scenes, info.scenes[emotion], "Don't switch", (value) => {
+      const next = { ...info.scenes };
+      if (value) next[emotion] = value;
+      else delete next[emotion];
+      saveObsMappings({ scenes: next });
+    });
+    const filter = obsSelect(info.obs_filters, info.filters[emotion], "None", (value) => {
+      const next = { ...info.filters };
+      if (value) next[emotion] = value;
+      else delete next[emotion];
+      saveObsMappings({ filters: next });
+    });
+    filter.disabled = !info.filter_source;
+    return el("div", { className: "obs-row" }, el("span", { textContent: emotion }), scene, filter);
+  });
+  $("obs-rows").replaceChildren(head, ...rows);
+}
+
+function renderObsStatus(status) {
+  const was = ui.obsState;
+  ui.obsState = status.state;
+  $("obs-status").textContent = status.message;
+  // Just connected: fetch the scene, source and filter names to choose from.
+  if (status.state === "connected" && was !== "connected" && was !== undefined) loadObs();
+  if (status.state !== "connected") $("obs-mappings").hidden = true;
+}
+
+async function loadObs() {
+  try {
+    const info = await api("/api/obs");
+    if (!info.available) {
+      $("obs-status").textContent = "OBS control isn't available in this mode.";
+      return;
+    }
+    renderObs(info);
+  } catch (err) {
+    flash("obs-msg", err.message, true);
+  }
+}
+
+async function saveObsConnection() {
+  const body = {
+    enabled: $("obs-enabled").checked,
+    host: $("obs-host").value.trim() || "127.0.0.1",
+    port: Number($("obs-port").value) || 4455,
+  };
+  const password = $("obs-password").value;
+  if (password) body.password = password; // left empty: keep the saved one
+  try {
+    renderObs(await sendJson("/api/obs/connection", "PUT", body));
+    flash("obs-msg", body.enabled ? "Saved. Connecting..." : "Saved. Disconnected.");
+  } catch (err) {
+    flash("obs-msg", err.message, true);
+  }
+}
+
 // --- images -------------------------------------------------------------------
 
 async function loadImages() {
@@ -639,6 +745,46 @@ function fallbackGroup() {
   );
 }
 
+const EFFECT_NAMES = {
+  "": "None",
+  shake: "Shake",
+  pulse: "Pulse",
+  jump: "Jump",
+  tremble: "Tremble",
+  droop: "Droop",
+};
+
+function effectsGroup() {
+  // For each emotion: a short animation the overlay plays when its image appears.
+  const effects = ui.settings.display.effects ?? {};
+  const rows = ui.emotions.map((emotion) => {
+    const input = el(
+      "select",
+      {},
+      ...Object.entries(EFFECT_NAMES).map(([v, label]) => el("option", { value: v, textContent: label })),
+    );
+    input.value = effects[emotion] ?? "";
+    input.addEventListener("change", () => {
+      const next = { ...effects };
+      if (input.value) next[emotion] = input.value;
+      else delete next[emotion];
+      saveSettings({ display: { effects: next } });
+    });
+    return settingRow(emotion, input);
+  });
+  return el(
+    "fieldset",
+    {},
+    el("legend", { textContent: "Effects" }),
+    el("p", {
+      className: "hint",
+      textContent:
+        "A short animation the overlay plays when an emotion's image appears. Try one with the Hold an emotion buttons while OBS is open.",
+    }),
+    ...rows,
+  );
+}
+
 function renderSettings() {
   if (!ui.settings) return;
   const groups = SETTINGS.map((group) =>
@@ -650,7 +796,7 @@ function renderSettings() {
       ...group.fields.map((f) => settingRow(f.label, settingInput(f), f.help)),
     ),
   );
-  $("settings").replaceChildren(...groups, fallbackGroup());
+  $("settings").replaceChildren(...groups, fallbackGroup(), effectsGroup());
 }
 
 async function resetSettings() {
@@ -1061,6 +1207,10 @@ async function init() {
   $("device-apply").addEventListener("click", applyDevice);
   $("device-refresh").addEventListener("click", loadDevices);
   $("compute").addEventListener("change", applyCompute);
+  $("obs-save").addEventListener("click", saveObsConnection);
+  $("obs-filter-source").addEventListener("change", () =>
+    saveObsMappings({ filter_source: $("obs-filter-source").value }),
+  );
   $("listen-toggle").addEventListener("click", toggleListening);
   $("settings-reset").addEventListener("click", resetSettings);
   $("import-btn").addEventListener("click", () => $("import-file").click());
@@ -1072,7 +1222,7 @@ async function init() {
   const groups = await api("/api/emotions");
   ui.emotions = groups.emotions;
   ui.imageGroups = groups.image_groups ?? groups.emotions;
-  await Promise.all([loadImages(), loadDevices(), loadSettings(), loadManual(), loadCompute()]);
+  await Promise.all([loadImages(), loadDevices(), loadSettings(), loadManual(), loadCompute(), loadObs()]);
 
   connect("/ws?debug=1", {
     onOpen: () => setPill("conn", "connected", "ok"),
@@ -1083,6 +1233,7 @@ async function init() {
       else if (msg.type === "vad") renderSpeaking(msg.speaking);
       else if (msg.type === "debug") renderDebug(msg);
       else if (msg.type === "calibration") renderCalibration(msg);
+      else if (msg.type === "obs") renderObsStatus(msg);
     },
   });
 }

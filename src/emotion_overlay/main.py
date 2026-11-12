@@ -118,8 +118,14 @@ def main(argv: list[str] | None = None) -> int:
         from emotion_overlay.hotkeys import HotkeyListener
 
         hotkey_factory = lambda on_press: HotkeyListener(config.hotkeys.modifiers, on_press)  # noqa: E731
+    from emotion_overlay.obs import ObsController
+
     app = create_app(
-        config, config_path=config_path, engine_factory=factory, hotkey_factory=hotkey_factory
+        config,
+        config_path=config_path,
+        engine_factory=factory,
+        hotkey_factory=hotkey_factory,
+        obs_factory=ObsController,
     )
 
     print(f"\n  Setup page:  {setup_url}")
