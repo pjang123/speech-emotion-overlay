@@ -17,6 +17,7 @@ import numpy as np
 
 from emotion_overlay.config import AppConfig
 from emotion_overlay.eval.datasets import Clip, load_wav
+from emotion_overlay.slang import plain_english
 
 
 class Predictor:
@@ -56,7 +57,8 @@ class Predictor:
         voice_job = self.pool.submit(timed_voice)
         transcript = self.transcriber.transcribe(audio)
         t_asr = time.perf_counter()
-        text_scores = self.text.scores(transcript) if transcript else {}
+        classified = plain_english(transcript) if self.config.classifier.slang else transcript
+        text_scores = self.text.scores(classified) if transcript else {}
         t_text = time.perf_counter()
         voice, voice_ms = voice_job.result()
         end = time.perf_counter()

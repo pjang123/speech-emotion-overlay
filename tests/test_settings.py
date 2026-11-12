@@ -72,5 +72,5 @@ def test_lenient_mode_ignores_locked_sections() -> None:
 def test_editable_settings_exposes_only_editable_fields() -> None:
     settings = editable_settings(AppConfig())
     assert set(settings) == {"state", "display", "vad", "classifier", "audio_emotion"}
-    assert settings["classifier"] == {"window_seconds": 6.0}
+    assert settings["classifier"] == {"slang": True, "window_seconds": 6.0}
     assert set(settings["audio_emotion"]) == {"enabled", "weight"}  # model needs a restart

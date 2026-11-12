@@ -1,9 +1,11 @@
 """Word triggers: show a chosen image for a few seconds when a phrase is heard.
 
 Matching is case-insensitive and whole-word on the latest utterance's transcript
-("gg" fires on "GG, nice" but not on "eggs"). Punctuation is ignored, so "G.G."
-and "gg" need separate phrases only if Whisper writes them differently; each
-trigger accepts several comma-separated alternatives for exactly that reason.
+("gg" fires on "GG, nice" but not on "eggs"). It forgives how Whisper happens to
+spell things: punctuation and apostrophes are ignored ("G.G." = "gg", "whats" =
+"what's"), stretched letters still match ("bruh" fires on "bruhhhh"), and known
+slang spellings count as one word ("sup" fires on "Wassup", see `slang.py`).
+Each trigger also accepts several comma-separated alternatives for anything else.
 
 Stored in data/triggers.json and validated on load, like the image manifest.
 """
@@ -15,8 +17,11 @@ import threading
 import uuid
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from emotion_overlay.slang import canonical, stretchy
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +30,7 @@ MAX_PHRASES = 10
 MAX_PHRASE_CHARS = 60
 MIN_DURATION_S, MAX_DURATION_S = 0.5, 60.0
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_NON_WORD = re.compile(r"[^\w']+")
+_NON_WORD = re.compile(r"\W+")
 
 
 class TriggerError(ValueError):
@@ -44,8 +49,20 @@ class Trigger:
 
 
 def normalize(text: str) -> str:
-    """Lowercase words separated by single spaces; punctuation (but not apostrophes) dropped."""
-    return " ".join(_NON_WORD.sub(" ", text.lower().replace(".", "")).split())
+    """Lowercase words separated by single spaces; punctuation and apostrophes dropped."""
+    text = text.lower().replace(".", "").replace("'", "").replace("’", "")
+    return " ".join(_NON_WORD.sub(" ", text).split())
+
+
+def _key(text: str) -> str:
+    """What matching compares: known slang spellings unified, then normalized."""
+    return normalize(canonical(text))
+
+
+@lru_cache(maxsize=1024)
+def _phrase_regex(phrase: str) -> re.Pattern[str]:
+    words = _key(phrase).split()
+    return re.compile(r"(?<!\S)" + " ".join(stretchy(w) for w in words) + r"(?!\S)")
 
 
 def parse_phrases(raw: str | Sequence[str]) -> tuple[str, ...]:
@@ -80,10 +97,12 @@ def check_duration(value: Any) -> float:
 
 def match(triggers: Sequence[Trigger], transcript: str) -> tuple[Trigger, str] | None:
     """The first trigger (in list order) with a phrase in the transcript, and that phrase."""
-    padded = f" {normalize(transcript)} "
+    heard = _key(transcript)
+    if not heard:
+        return None
     for trigger in triggers:
         for phrase in trigger.phrases:
-            if f" {normalize(phrase)} " in padded:
+            if _phrase_regex(phrase).search(heard):
                 return trigger, phrase
     return None
 

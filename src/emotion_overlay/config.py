@@ -40,6 +40,7 @@ class ClassifierConfig(BaseModel):
     model: str = "j-hartmann/emotion-english-distilroberta-base"
     device: Device = "cpu"
     window_seconds: float = Field(6.0, ge=0.0, le=60.0)
+    slang: bool = True  # translate slang ("lol" -> "haha") before the text model; see slang.py
 
 
 # Audio model label -> the emotions it stands for. The voice model only knows four

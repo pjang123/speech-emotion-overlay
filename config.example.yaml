@@ -26,6 +26,7 @@ classifier:
   model: j-hartmann/emotion-english-distilroberta-base
   device: cpu             # cpu | cuda | auto
   window_seconds: 6.0     # classify the transcript from the last N seconds; 0 = latest utterance only
+  slang: true             # read slang as plain English first ("lol" -> "haha"); see src/emotion_overlay/slang.py
 
 audio_emotion:            # tone of voice, fused with the text model
   enabled: true           # live-editable; first enable downloads ~380 MB
@@ -38,7 +39,7 @@ audio_emotion:            # tone of voice, fused with the text model
     ang: [anger, disgust, fear]
     sad: [sadness]
 
-# state, display, vad, classifier.window_seconds and audio_emotion.enabled/weight
+# state, display, vad, classifier.window_seconds/slang and audio_emotion.enabled/weight
 # can also be changed live on the setup page.
 state:
   confidence_threshold: 0.5

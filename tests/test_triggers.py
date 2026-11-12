@@ -35,11 +35,36 @@ def test_whole_word_case_insensitive_matching(transcript: str, fires: bool) -> N
 
 
 def test_phrases_and_alternatives() -> None:
-    t = trig("let's go", "lets go")
+    t = trig("let's go", "here we go")
     assert match([t], "Okay, LET'S GO!") == (t, "let's go")
-    assert match([t], "lets go team") == (t, "lets go")
+    assert match([t], "lets go team") == (t, "let's go")  # apostrophes ignored
+    assert match([t], "Here we go again") == (t, "here we go")
     assert match([t], "let us go") is None
-    assert match([t], "let's goooo") is None
+    assert match([t], "LET'S GOOOO") == (t, "let's go")  # stretched letters still count
+
+
+@pytest.mark.parametrize(
+    ("phrase", "transcript", "fires"),
+    [
+        ("bruh", "Bruhhhh, come on.", True),
+        ("bruh", "Brah.", True),  # known slang spelling
+        ("bruh", "bro", False),  # a different word
+        ("sup", "Wassup chat!", True),
+        ("sup", "'Sup?", True),
+        ("wassup", "Sup guys", True),  # works from either spelling
+        ("sup", "soup", False),
+        ("lol", "L-O-L", True),
+        ("lol", "LOOOL", True),
+        ("deadass", "Dead ass?", True),
+        ("rizz", "Riz", True),
+        ("whats up", "What's up?", True),  # apostrophes ignored
+        ("god", "good", False),  # a double letter is spelling, not stretching
+        ("good", "goooood", True),
+        ("bruh moment", "Bruhhh moment", True),
+    ],
+)
+def test_forgiving_spelling(phrase: str, transcript: str, fires: bool) -> None:
+    assert (match([trig(phrase)], transcript) is not None) == fires
 
 
 def test_first_trigger_in_list_wins() -> None:
@@ -48,7 +73,7 @@ def test_first_trigger_in_list_wins() -> None:
 
 
 def test_normalize() -> None:
-    assert normalize("  Hello,   WORLD!  It's G.G.  ") == "hello world it's gg"
+    assert normalize("  Hello,   WORLD!  It's G.G.  ") == "hello world its gg"
 
 
 def test_parse_phrases_validation() -> None:

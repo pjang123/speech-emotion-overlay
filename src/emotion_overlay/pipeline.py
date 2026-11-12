@@ -31,6 +31,7 @@ from emotion_overlay.classify.window import TranscriptWindow
 from emotion_overlay.config import AppConfig
 from emotion_overlay.debug_store import DebugRecorder
 from emotion_overlay.emotions import Scores
+from emotion_overlay.slang import plain_english
 from emotion_overlay.state_machine import EmotionState, EmotionStateMachine
 
 log = logging.getLogger(__name__)
@@ -292,6 +293,8 @@ class Pipeline:
                 self._window.seconds = cfg.classifier.window_seconds  # live-editable
                 self._window.add(text, utterance.ended_at)
                 window_text = self._window.text(time.monotonic())
+            if cfg.classifier.slang:
+                window_text = plain_english(window_text)  # shown as what the model read
             text_scores = self._classifier.scores(window_text)
         t_classify = time.perf_counter()
 

@@ -48,6 +48,8 @@ const SETTINGS = [
         min: 0.5, max: 600, step: 0.5 },
       { path: "classifier.window_seconds", label: "Text window (s)", type: "number", min: 0, max: 60, step: 1,
         help: "How much recent speech is judged together. 0 = only the last sentence." },
+      { path: "classifier.slang", label: "Understand slang", type: "checkbox",
+        help: "Reads slang as plain English before judging the emotion, e.g. \"lol\" as \"haha\" and \"that was fire\" as \"that was amazing\"." },
       { path: "vad.min_silence_ms", label: "Pause that ends a sentence (ms)", type: "number",
         min: 50, max: 5000, step: 50, help: "Shorter reacts faster but may split sentences." },
       { path: "vad.max_utterance_s", label: "Longest chunk of speech (s)", type: "number", min: 1, max: 30, step: 0.5,
