@@ -48,8 +48,13 @@ const SETTINGS = [
         min: 0.5, max: 600, step: 0.5 },
       { path: "classifier.window_seconds", label: "Text window (s)", type: "number", min: 0, max: 60, step: 1,
         help: "How much recent speech is judged together. 0 = only the last sentence." },
-      { path: "classifier.interim_s", label: "Update while talking (s)", type: "number", min: 0, max: 10, step: 0.5,
-        help: "Re-checks your words every this many seconds while you're still talking, so the image can change before you pause. 0 = only after each sentence." },
+      { path: "classifier.interim_s", label: "Update while talking", type: "select",
+        // A list, not an object: JS would put the integer-like keys first.
+        options: [["auto", "Automatic"], ["0", "Off"], ["0.5", "Every 0.5 s"], ["1", "Every 1 s"],
+          ["1.5", "Every 1.5 s"], ["2", "Every 2 s"], ["3", "Every 3 s"]],
+        toInput: (v) => (v === null ? "auto" : String(v)),
+        fromInput: (v) => (v === "auto" ? null : Number(v)),
+        help: "Re-checks your words while you're still talking, so the image can change before you pause. Automatic: every 0.5 s on a GPU, every 1 s on a CPU." },
       { path: "classifier.slang", label: "Understand slang", type: "checkbox",
         help: "Reads slang as plain English before judging the emotion, e.g. \"lol\" as \"haha\" and \"that was fire\" as \"that was amazing\"." },
       { path: "vad.min_silence_ms", label: "Pause that ends a sentence (ms)", type: "number",
@@ -566,19 +571,22 @@ function settingInput(field) {
   const value = getSetting(field.path);
   let input;
   if (field.type === "select") {
+    const shown = field.toInput ? field.toInput(value) : value;
+    const options = Array.isArray(field.options) ? [...field.options] : Object.entries(field.options);
+    if (!options.some(([v]) => v === String(shown))) options.push([String(shown), `${shown} (from config.yaml)`]);
     input = el(
       "select",
       {},
-      ...Object.entries(field.options).map(([v, label]) => el("option", { value: v, textContent: label })),
+      ...options.map(([v, label]) => el("option", { value: v, textContent: label })),
     );
-    input.value = value;
+    input.value = shown;
   } else if (field.type === "checkbox") {
     input = el("input", { type: "checkbox", checked: value });
   } else {
     input = el("input", { type: "number", min: field.min, max: field.max, step: field.step, value });
   }
   input.addEventListener("change", () => {
-    let next = input.value;
+    let next = field.fromInput ? field.fromInput(input.value) : input.value;
     if (field.type === "checkbox") next = input.checked;
     if (field.type === "number") {
       if (input.value === "" || Number.isNaN(Number(input.value))) return renderSettings();

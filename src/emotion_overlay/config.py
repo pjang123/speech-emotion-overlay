@@ -32,7 +32,10 @@ class VadConfig(BaseModel):
 
 class AsrConfig(BaseModel):
     backend: Literal["auto", "faster-whisper", "transformers"] = "auto"
-    model: str = "base.en"
+    model: str = "base.en"  # used on the CPU
+    # Used when speech-to-text runs on the GPU: more accurate on casual or noisy speech,
+    # and fast enough there (~125 ms vs ~1.2 s per sentence on a CPU).
+    gpu_model: str = "small.en"
     device: Device = "auto"  # GPU if PyTorch can use one (see compute.py), else CPU
     compute_type: str = "int8"
     language: str | None = "en"
@@ -47,7 +50,8 @@ class ClassifierConfig(BaseModel):
     slang: bool = True  # translate slang ("lol" -> "haha") before the text model; see slang.py
     # While someone is still talking, re-check the words every this many seconds of
     # speech, so the image can change before the sentence ends. 0 = only after it ends.
-    interim_s: float = Field(1.0, ge=0.0, le=10.0)
+    # None = automatic: INTERIM_GPU_S when speech-to-text runs on the GPU, else INTERIM_CPU_S.
+    interim_s: float | None = Field(None, ge=0.0, le=10.0)
 
 
 # Audio model label -> the emotions it stands for. If a label lists several, its
@@ -166,7 +170,10 @@ class DebugConfig(BaseModel):
     save_transcripts: bool = False
 
 
-CONFIG_VERSION = 2  # 2: new default voice model
+INTERIM_GPU_S = 0.5  # each check takes ~0.1 s on a GPU
+INTERIM_CPU_S = 1.0  # ~0.3 s on a CPU, which could delay the end-of-sentence result
+
+CONFIG_VERSION = 3  # 2: new default voice model; 3: automatic interim_s
 
 
 class AppConfig(BaseModel):
@@ -200,20 +207,25 @@ def _migrate(raw: dict[str, Any]) -> None:
     """Upgrade an older config file in place (the new version is saved on the next save).
 
     Every save writes all settings, so an old default can't be told apart from a
-    deliberate choice except by the file's version: only files from before the
-    switch that still hold the old default voice model are moved to the new one.
+    deliberate choice except by the file's version. Each step only touches files
+    from before its version that still hold the old default.
     """
-    if raw.get("config_version", 1) >= CONFIG_VERSION:
+    version = raw.get("config_version", 1)
+    if not isinstance(version, int) or version >= CONFIG_VERSION:
         return
     voice = raw.get("audio_emotion")
     if (
-        isinstance(voice, dict)
+        version < 2
+        and isinstance(voice, dict)
         and voice.get("model", OLD_VOICE_MODEL) == OLD_VOICE_MODEL
         and voice.get("label_map", OLD_AUDIO_LABEL_MAP) == OLD_AUDIO_LABEL_MAP
     ):
         log.info("Switching the tone-of-voice model to the new default, %s", DEFAULT_VOICE_MODEL)
         voice.pop("model", None)
         voice.pop("label_map", None)
+    words = raw.get("classifier")
+    if version < 3 and isinstance(words, dict) and words.get("interim_s") == 1.0:
+        words.pop("interim_s")  # the old fixed default becomes automatic
     raw["config_version"] = CONFIG_VERSION
 
 

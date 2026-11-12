@@ -66,6 +66,7 @@ class FasterWhisperTranscriber:
         from faster_whisper import WhisperModel
 
         self._config = config
+        self.model = config.model
         # int8 weights with float16 maths is CTranslate2's fast mode on NVIDIA GPUs.
         compute_type = config.compute_type
         if device == "cuda" and compute_type == "int8":
@@ -102,6 +103,7 @@ class TransformersWhisperTranscriber:
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
         self._config = config
+        self.model = config.model
         # faster-whisper short names ("base.en") map to the original OpenAI checkpoints.
         name = config.model if "/" in config.model else f"openai/whisper-{config.model}"
         self.device = device
@@ -156,6 +158,10 @@ def load_transcriber(config: AsrConfig) -> Transcriber:
     the GPU, faster-whisper on the CPU, Whisper via PyTorch on the CPU; the GPU ones
     only if the GPU is wanted and usable."""
     device = torch_device(config.device, "speech-to-text")
+    # A bigger, more accurate model when on the GPU, where it's still fast.
+    config = config.model_copy(
+        update={"model": config.gpu_model if device == "cuda" else config.model}
+    )
     if config.backend in ("auto", "faster-whisper") and device == "cuda":
         problem = faster_whisper_gpu_problem()
         if problem is None:

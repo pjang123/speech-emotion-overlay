@@ -33,7 +33,7 @@ from emotion_overlay.audio.vad import SAMPLE_RATE, Utterance, UtteranceSegmenter
 from emotion_overlay.calibration import CALIBRATION_SILENCE_MS, Calibration, SpeechStats
 from emotion_overlay.classify.fusion import score_utterance
 from emotion_overlay.classify.window import TranscriptWindow
-from emotion_overlay.config import AppConfig
+from emotion_overlay.config import INTERIM_CPU_S, INTERIM_GPU_S, AppConfig
 from emotion_overlay.debug_store import DebugRecorder
 from emotion_overlay.emotions import Scores
 from emotion_overlay.slang import plain_english
@@ -72,7 +72,7 @@ class Pipeline:
         self._utt_q: queue.Queue[Utterance | Interim] = queue.Queue()
         self._asr_busy = False
         # Length of the utterance in progress at which to send the next interim.
-        self._interim_due_s = config.classifier.interim_s
+        self._interim_due_s = INTERIM_CPU_S
         self._stop = threading.Event()
         self._reset_vad = threading.Event()
         self._state_lock = threading.Lock()
@@ -177,6 +177,15 @@ class Pipeline:
             self._reload_lock.release()
         self._events.on_message(self.status())
 
+    def interim_interval(self) -> float:
+        """Seconds of speech between checks while talking; 0 = off. Automatic (None)
+        checks more often when speech-to-text is on the GPU, where a check is cheap."""
+        value = self._config.classifier.interim_s
+        if value is not None:
+            return value
+        on_gpu = getattr(self._transcriber, "device", "cpu") == "cuda"
+        return INTERIM_GPU_S if on_gpu else INTERIM_CPU_S
+
     def devices(self) -> dict[str, str | None]:
         """Where each model is running ('cpu'/'cuda'), None if not loaded."""
         return {
@@ -202,12 +211,14 @@ class Pipeline:
             "listening": self._listening,
             "voice_model": self._voice_state,
             "device": self._capture.device_name or None,
-            "asr": f"{self._transcriber.backend} on {self._transcriber.device}"
+            "asr": f"Whisper {getattr(self._transcriber, 'model', '?')} "
+            f"({self._transcriber.backend}) on {self._transcriber.device}"
             if self._transcriber
             else None,
             "devices": self.devices(),
             "switching": self._reload_lock.locked(),
             "ready": self._booted.is_set(),  # startup has loaded every model
+            "interim_s": self.interim_interval(),
             "pending_utterances": self._utt_q.qsize(),
             "dropped_audio_blocks": self._dropped_blocks,
         }
@@ -324,7 +335,7 @@ class Pipeline:
 
     def _maybe_interim(self, segmenter: UtteranceSegmenter, restart: bool) -> None:
         """Queue the sentence so far if it has grown by another `interim_s` of speech."""
-        interval = self._config.classifier.interim_s
+        interval = self.interim_interval()
         length = segmenter.buffered_s
         if restart or not segmenter.speaking:
             self._interim_due_s = interval
