@@ -9,6 +9,7 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 - Added on request: personalised calibration (`personalize.py`) that profiles the speaker from the 14 lines and recommends settings with reasons; user ticks which to apply (`POST /api/calibration/save {"apply": [paths]}`).
 - Added on request: word triggers (`triggers.py`, display override + `hub.call_later` to end it) and GIFs from links (`fetch.py`, SSRF-guarded; follows Tenor/Giphy og:image once with Accept: image/* only). Image group "trigger" holds trigger-only images.
 - Added on request: slang (`slang.py`, one table). Triggers match via `slang.canonical` + stretched letters (single letter = 1 or 3+, so "god" != "good"), apostrophes ignored. `classifier.slang` (live, default on) runs `plain_english` before the text model; each meaning was checked against the real model. Whisper vocabulary prompts were tried and rejected: they hallucinate the prompt words on noise.
+- Added on request: Windows installer (2026-11-12). `packaging/` (PyInstaller spec, launcher, Inno Setup script) + `.github/workflows/windows-installer.yml` builds and tests it on GitHub's runners. Unsigned, models downloaded on first run (user's choices). The installed app keeps config/data in `%LOCALAPPDATA%\EmotionOverlay` (`paths.py`). `--self-test` loads and runs every model without a mic.
 - Phase 4 (eval tooling, RAVDESS results, README) done. Pending from the user: own recordings (`eval record` + `eval run mine`) and a demo GIF for the README.
 - Key results (RAVDESS, see eval/results/ravdess/report.md): voice model answers "ang" for 79% of clips (domain shift; level normalisation and resampling ruled out); CV-best voice weight 0.6 there, but default stays 0.25 because real speech carries emotion in words. Latency median 712 ms / p95 868 ms (faster-whisper, CPU).
 - User decision: the image should change freely with every sentence. Anti-flicker rules exist but default OFF; don't turn them on by default.
@@ -17,6 +18,7 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 - Install: `uv sync` (or `pip install -r requirements.txt`; regenerate with `uv export --no-hashes --no-dev -o requirements.txt`)
 - Run: `uv run python -m emotion_overlay` (setup at http://127.0.0.1:8765/setup, overlay at /overlay). `--no-audio` for UI only, `--log-level DEBUG` to audit network calls.
 - Evaluate: `uv run python -m emotion_overlay.eval {download ravdess | record | run ravdess|mine | report ravdess|mine}`; pass `--config config.example.yaml` for reproducible (default) settings
+- Installer: built in CI (push to `packaging/**`, workflow_dispatch, or publishing a Release attaches it). Local: `uv sync --group build`, `uv run python -m PyInstaller packaging/emotion_overlay.spec` (use `--workpath`/`--distpath` outside OneDrive). Smart App Control blocks running the unsigned exe on the dev machine, so it can only be tested in CI.
 - Test: `uv run python -m pytest` (NOT `uv run pytest`: Smart App Control blocks the pytest.exe shim on the dev machine)
 - Lint/format: `uv run ruff check .` / `uv run ruff format .`
 
@@ -41,6 +43,7 @@ Real-time speech emotion -> user image overlay (OBS Browser Source). Full brief:
 - Load HF models via `model_cache.load_cached` so cached starts make zero network calls.
 - Uploads: validate by content (Pillow, 4 formats), size/pixel limits, random IDs, client filename is display-only.
 - Frontend: build DOM with `textContent`/properties, never `innerHTML`. CSP allows only `'self'` scripts/styles.
+- Resolve bundled files via `paths.web_dir()` (not `__file__`), and new runtime data files need adding to `packaging/emotion_overlay.spec`. Transformers model families beyond whisper/roberta/hubert/wav2vec2 need their `collect_submodules` line there too.
 - Heavy imports (torch, transformers, faster_whisper, sounddevice) stay inside functions so the server/tests import fast.
 
 ## Dev machine gotchas
