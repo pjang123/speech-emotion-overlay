@@ -1,3 +1,5 @@
+import sys
+
 from emotion_overlay.main import main
 
-main()
+sys.exit(main())

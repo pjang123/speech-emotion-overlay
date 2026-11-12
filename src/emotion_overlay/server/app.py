@@ -22,6 +22,7 @@ from emotion_overlay.config import AppConfig, save_config
 from emotion_overlay.emotions import EMOTIONS, IMAGE_GROUPS, NEUTRAL, Scores
 from emotion_overlay.fetch import FetchError, fetch_image
 from emotion_overlay.images import FORMATS, TIERS, ImageStore, ImageValidationError
+from emotion_overlay.paths import web_dir
 from emotion_overlay.pipeline import PipelineEvents
 from emotion_overlay.server.calibration import CalibrationController
 from emotion_overlay.server.display import DisplayState
@@ -41,7 +42,7 @@ from emotion_overlay.triggers import match as match_trigger
 
 log = logging.getLogger(__name__)
 
-WEB_DIR = Path(__file__).resolve().parents[3] / "web"
+WEB_DIR = web_dir()
 
 
 class AudioEngine(Protocol):
