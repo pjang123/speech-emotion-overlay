@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from emotion_overlay.emotions import EMOTIONS
 
@@ -163,21 +163,83 @@ class ServerConfig(BaseModel):
     port: int = Field(8765, ge=1, le=65535)
 
 
+HotkeyAction = Literal["auto", "emotion", "image", "trigger"]
+_ID_PATTERN = r"^[0-9a-f]{32}$"
+# Three modifiers by default so the keys can't clash with typing (Ctrl+Alt is
+# AltGr on many keyboard layouts, where AltGr + a digit types a character).
+DEFAULT_HOTKEY_MODIFIERS = "ctrl+alt+shift"
+
+
+class HotkeyBinding(BaseModel):
+    """One key combination and what it does.
+
+    auto: back to detected emotions. emotion: hold `emotion` (press again to release).
+    image: show `image_id`, held until pressed again, or for `duration_s` seconds.
+    trigger: fire the word trigger `trigger_id` as if its phrase had been said.
+    """
+
+    keys: str
+    action: HotkeyAction
+    emotion: str | None = None
+    image_id: str | None = Field(None, pattern=_ID_PATTERN)
+    trigger_id: str | None = Field(None, pattern=_ID_PATTERN)
+    duration_s: float | None = Field(None, ge=0.5, le=60.0)
+
+    @field_validator("keys")
+    @classmethod
+    def _valid_keys(cls, value: str) -> str:
+        from emotion_overlay.hotkeys import normalize_keys
+
+        return normalize_keys(value)
+
+    @model_validator(mode="after")
+    def _target_matches_action(self) -> "HotkeyBinding":
+        needed = {"emotion": "emotion", "image": "image_id", "trigger": "trigger_id"}
+        field = needed.get(self.action)
+        if field and getattr(self, field) is None:
+            raise ValueError(f"a '{self.action}' hotkey needs {field}")
+        if self.action == "emotion" and self.emotion not in EMOTIONS:
+            raise ValueError(f"unknown emotion '{self.emotion}'")
+        # Drop whatever belongs to other actions, so the saved file stays readable.
+        for name in ("emotion", "image_id", "trigger_id"):
+            if name != field:
+                setattr(self, name, None)
+        if self.action != "image":
+            self.duration_s = None
+        return self
+
+
+def default_hotkeys(modifiers: str = DEFAULT_HOTKEY_MODIFIERS) -> list[HotkeyBinding]:
+    """modifiers + 1..7 hold an emotion (in EMOTIONS order), modifiers + 0 = automatic."""
+    return [
+        HotkeyBinding(keys=f"{modifiers}+0", action="auto"),
+        *(
+            HotkeyBinding(keys=f"{modifiers}+{i}", action="emotion", emotion=emotion)
+            for i, emotion in enumerate(EMOTIONS, start=1)
+        ),
+    ]
+
+
 class HotkeyConfig(BaseModel):
-    """Global hotkeys (Windows): modifiers + 1..7 hold an emotion, modifiers + 0 releases."""
+    """Global hotkeys (Windows). Not a live "setting": changed through its own API
+    and left out of setup exports, like OBS, because keys are personal to this PC."""
 
     enabled: bool = True
-    # Three modifiers by default so the keys can't clash with typing (Ctrl+Alt is
-    # AltGr on many keyboard layouts, where AltGr + a digit types a character).
-    modifiers: str = "ctrl+alt+shift"
+    bindings: list[HotkeyBinding] = Field(default_factory=default_hotkeys)
 
-    @field_validator("modifiers")
+    @field_validator("bindings")
     @classmethod
-    def _valid_modifiers(cls, value: str) -> str:
-        from emotion_overlay.hotkeys import parse_modifiers
+    def _unique_keys(cls, value: list[HotkeyBinding]) -> list[HotkeyBinding]:
+        from emotion_overlay.hotkeys import MAX_BINDINGS, describe_keys
 
-        parse_modifiers(value)
-        return value.lower().replace(" ", "")
+        if len(value) > MAX_BINDINGS:
+            raise ValueError(f"at most {MAX_BINDINGS} hotkeys")
+        seen: set[str] = set()
+        for binding in value:
+            if binding.keys in seen:
+                raise ValueError(f"{describe_keys(binding.keys)} is used for two hotkeys")
+            seen.add(binding.keys)
+        return value
 
 
 class ObsConfig(BaseModel):
@@ -214,7 +276,7 @@ class DebugConfig(BaseModel):
 INTERIM_GPU_S = 0.5  # each check takes ~0.1 s on a GPU
 INTERIM_CPU_S = 1.0  # ~0.3 s on a CPU, which could delay the end-of-sentence result
 
-CONFIG_VERSION = 3  # 2: new default voice model; 3: automatic interim_s
+CONFIG_VERSION = 4  # 2: new default voice model; 3: automatic interim_s; 4: hotkey bindings
 
 
 class AppConfig(BaseModel):
@@ -268,6 +330,17 @@ def _migrate(raw: dict[str, Any]) -> None:
     words = raw.get("classifier")
     if version < 3 and isinstance(words, dict) and words.get("interim_s") == 1.0:
         words.pop("interim_s")  # the old fixed default becomes automatic
+    keys = raw.get("hotkeys")
+    if version < 4 and isinstance(keys, dict) and "modifiers" in keys:
+        # Modifiers + 0..7 became a list of bindings; keep the modifiers that were chosen.
+        modifiers = keys.pop("modifiers")
+        if "bindings" not in keys:
+            try:
+                keys["bindings"] = [
+                    b.model_dump(mode="json") for b in default_hotkeys(str(modifiers))
+                ]
+            except ValueError:
+                log.warning("Ignoring unusable hotkeys.modifiers %r", modifiers)
     raw["config_version"] = CONFIG_VERSION
 
 

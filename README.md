@@ -11,6 +11,7 @@ Everything runs on your own PC. Your audio never leaves it.
 
 ## Contents
 
+- [Beginner's guide](#beginners-guide)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Install](#install)
@@ -32,6 +33,95 @@ Everything runs on your own PC. Your audio never leaves it.
 - [Credits](#credits)
 - [License](#license)
 
+## Beginner's guide
+
+New to this kind of thing? This part walks you through everything with no technical knowledge needed. It's written for Windows 10 and 11. The rest of this page goes into more detail, but you don't need to read it to get started.
+
+### What it does, in one sentence
+
+You pick a picture for each mood (happy, sad, angry and so on), and while you talk, the app works out how you sound and shows the matching picture on your stream.
+
+### Before you start
+
+You'll need:
+
+- A Windows PC.
+- A microphone.
+- About 3 GB of free disk space.
+- An internet connection for the first start only (the app downloads its "brain" once, about 2 GB).
+- [OBS Studio](https://obsproject.com/) if you want the pictures on your stream. You can also just watch them in your web browser.
+- Some pictures or GIFs of yourself, your character or anything you like, one or more for each mood.
+
+### Step 1: Download the app
+
+1. At the top of this GitHub page, click the green **Code** button, then **Download ZIP**.
+2. Find the downloaded file (usually in your **Downloads** folder), right-click it and choose **Extract All…**, then click **Extract**.
+3. You now have a normal folder. Put it somewhere you'll find again, like your Desktop or Documents.
+
+### Step 2: Start it
+
+1. Open the folder and double-click **`run-cpu.bat`**. (If you have an NVIDIA graphics card, you can use **`run-gpu.bat`** instead. It's faster, but its first start downloads about 3 GB more.)
+2. If Windows shows a blue "Windows protected your PC" box, click **More info**, then **Run anyway**.
+3. A black window opens with text scrolling by. **The very first time, this takes several minutes** while the app installs what it needs. Later starts take a few seconds.
+4. When the black window shows a line like `Setup page: http://127.0.0.1:8765/setup`, go on to Step 3.
+
+Keep the black window open the whole time you use the app. Closing it turns the app off.
+
+### Step 3: Open the setup page
+
+Open your web browser (Chrome, Edge, Firefox…), type **`127.0.0.1:8765/setup`** in the address bar and press Enter. This page is where you control everything. It only exists on your own PC. Nobody else can see it.
+
+The first time, the app is still downloading its speech and emotion models in the background. The bar at the top of the page says **Loading…** until it's done, which can take a while on a slow connection. You can already add your pictures (Step 5) while you wait.
+
+### Step 4: Choose your microphone
+
+In the **Microphone** box, pick the mic you talk into from the list and click **Use this mic**. Say something. In the **Live** box, the grey dot should turn on and say **Speaking**, and a moment later your words appear under **Last transcript**.
+
+### Step 5: Add your pictures
+
+In the **Images** box there's a square for each mood.
+
+1. Click **Add** on a square and choose picture files from your PC. You can also drag files onto a square, or click **Link** and paste a GIF link from a site like Giphy or Tenor.
+2. Add at least one picture to **Neutral**: that's your "normal" face, shown when you're calm or quiet.
+3. Click the ★ star under your favourite picture to make it the **default**. It's shown for any mood you haven't given a picture yet.
+
+You don't have to fill every mood. Start with neutral and joy, and add more whenever you like.
+
+### Step 6: Put it on your stream (OBS)
+
+1. In OBS, under **Sources**, click **+** and choose **Browser**. Give it a name and click **OK**.
+2. In the **URL** box, type `http://127.0.0.1:8765/overlay`.
+3. Set **Width** and **Height** to the size of your pictures (for example 800 and 800), then click **OK**.
+4. Drag and resize it on your scene like any other source.
+
+The background is see-through, so only your picture shows. If you don't use OBS, open `127.0.0.1:8765/overlay` in a browser tab to watch it.
+
+### Step 7: Talk!
+
+Just talk normally. About a second after you finish a sentence, the picture changes to match your mood. Say "this is amazing, I love it!" and you should see your joy picture. The **Live** box on the setup page shows what it heard and how sure it was.
+
+### Optional extras
+
+None of these are needed, but they make it better:
+
+- **Calibration (recommended, about 2 minutes):** in the **Calibration** box, click **Start** and read the 14 short lines out loud in the mood shown. The app learns how *your* voice sounds and suggests settings for you. Tick the ones you want and save.
+- **Word triggers:** show a special picture for a few seconds when you say a certain word, like "gg" or "let's go". In the **Word triggers** box, type the word, choose a picture and click **Add trigger**.
+- **Hotkeys:** keyboard shortcuts that work even while you're in a game. By default, **Ctrl+Alt+Shift+1** to **7** lock a mood on screen and **Ctrl+Alt+Shift+0** goes back to normal. In the **Hotkeys** box you can change the keys (click them, then press new ones) and make any key show any picture.
+- **Settings:** change how pictures fade in, how quickly the app reacts, and more. Each setting has a short explanation, and **Reset to defaults** undoes everything.
+- **Backup:** **Export setup** saves all your pictures and settings in one file, so you can move them to another PC or keep a copy.
+
+### Using it again next time
+
+Double-click `run-cpu.bat` (or `run-gpu.bat`) again and wait for the setup page line. Your pictures and settings are remembered. OBS reconnects by itself once the app is running.
+
+### If something isn't working
+
+- **The picture never changes:** check that the **Live** box says **Speaking** when you talk. If not, pick a different mic in Step 4. Also check the **Stop listening** button at the top: if it says **Start listening**, click it.
+- **OBS shows nothing:** make sure the black window is still open, and that the mood has a picture (or you've set a ★ default). In OBS, right-click the source and choose **Refresh**.
+- **It picks the wrong mood:** do the calibration. Speaking a bit more expressively helps too, since the app listens to both your words and your tone.
+- **"An Application Control policy has blocked this file":** this is Windows' Smart App Control; see [Troubleshooting](#troubleshooting).
+- **The black window shows an error and stops:** take a screenshot of it. The [Troubleshooting](#troubleshooting) section covers the common ones.
+
 ## Features
 
 - **Words and tone of voice.** A text model reads what you say, and a second model listens to how you say it. Their scores are combined with a weight you control, so a sarcastic "great" or a laugh can count.
@@ -40,7 +130,7 @@ Everything runs on your own PC. Your audio never leaves it.
 - **Word triggers.** Say "gg" or "let's go" and a chosen image or GIF shows for a few seconds, then the emotion image comes back. Each trigger can list alternative spellings and has a Test button for checking it in OBS.
 - **Slang.** Triggers forgive how speech-to-text spells things: "sup" fires on "Wassup", "bruh" on "Bruhhhh", and "lol" on "L-O-L". Slang is also read as plain English before emotion scoring, so "lol" counts as "haha" and "that was fire" as "that was amazing". Without this the text model, trained on ordinary English, reads "lol" as neutral and "no cap that was fire" as anger.
 - **Updates while you talk.** During long sentences, the words so far are re-checked every second of speech, so the image can change before you pause.
-- **Hold an emotion by hand.** Use buttons on the setup page, or global hotkeys that work while a game has focus (Ctrl+Alt+Shift + 1–7, and + 0 for automatic). A Stream Deck can do the same over HTTP.
+- **Hotkeys you choose.** Global hotkeys work while a game has focus. Pick any key combination and what it does: hold an emotion, show any image (a word-trigger image or any other) until you press it again or for a few seconds, fire a word trigger, or go back to automatic. The setup page has buttons for holding emotions too, and a Stream Deck can do the same over HTTP.
 - **Calibration that adapts to you.** Read 14 short lines. The app learns how your voice and mic sound and profiles how you speak (pauses, volume against background noise, expressiveness). It then tests whether tone of voice helps for you and recommends settings, each with its reason. You choose which to apply.
 - **CPU or GPU.** Choose where the models run on the setup page. Switching takes effect while the app runs. GPU support is an optional install.
 - **Live settings.** Every display and detection setting can be changed on the setup page while you stream. Changes apply immediately and are saved.
@@ -218,7 +308,21 @@ Recalibrate if you change microphones, rooms, or the voice model. A calibration 
 
 ## Hotkeys and Stream Deck
 
-Global hotkeys work while another app (such as a game) has focus:
+Global hotkeys work while another app (such as a game) has focus. Set them up in the **Hotkeys** card on the setup page; changes apply right away.
+
+- **Keys:** click a hotkey's key combination, then press the new keys. Combinations need Ctrl, Alt or Win, so they can't block normal typing. F1–F24, Pause and Scroll Lock also work on their own, which suits a Stream Deck or macro pad (many can send F13–F24). **Add hotkey** asks for the keys first.
+- **What it does:**
+  - **Hold an emotion:** shows that emotion's images until you press the same keys again or a "Back to automatic" key.
+  - **Show an image:** any image you've added, including the ones in **Word triggers only**. Either *until pressed again* (held like an emotion) or *for a few seconds* (like a word trigger).
+  - **Fire a word trigger:** as if you'd said its phrase.
+  - **Back to automatic:** lets go of a held emotion or image.
+- **Test** does what the hotkey does without pressing it. **Reset to defaults** brings back the defaults below. **Hotkeys on** turns them all off or on.
+- **Deleted images or triggers:** the hotkey stays, and the setup page says it's not working until you pick something else.
+- **Conflicts:** if another app already uses a combination, the setup page says so on that hotkey.
+- **Platforms:** hotkeys are Windows only. Elsewhere, use the setup page or the API.
+- **Not in backups:** like the OBS settings, hotkeys stay on this PC.
+
+The defaults:
 
 | Keys | Holds |
 |---|---|
@@ -231,10 +335,7 @@ Global hotkeys work while another app (such as a game) has focus:
 | Ctrl+Alt+Shift + 7 | surprise |
 | Ctrl+Alt+Shift + 0, or the same key again | back to automatic |
 
-- **Changing them:** the modifiers are set in `config.yaml` (`hotkeys.modifiers`, for example `ctrl+alt`). Restart the app to apply.
-- **Why three modifiers:** on many keyboard layouts Ctrl+Alt acts as AltGr, and AltGr + a digit types a character, so the default avoids clashing with typing.
-- **Conflicts:** if another app already uses one of the combinations, the setup page says which ones.
-- **Platforms:** hotkeys are Windows only. Elsewhere, use the setup page or the API.
+They use three modifiers because on many keyboard layouts Ctrl+Alt acts as AltGr, and AltGr + a digit types a character.
 
 A **Stream Deck** (or any tool that can send HTTP requests) can control the same thing:
 
@@ -243,12 +344,13 @@ curl -X PUT http://127.0.0.1:8765/api/manual -H "Content-Type: application/json"
 curl -X PUT http://127.0.0.1:8765/api/manual -H "Content-Type: application/json" -d "{\"emotion\": null}"
 ```
 
-The first holds joy; the second goes back to automatic. Other useful endpoints:
+The first holds joy; the second goes back to automatic. `{"image_id": "<id>"}` holds one image instead (image IDs are in `GET /api/images`). Other useful endpoints:
 
 | Request | Effect |
 |---|---|
 | `PUT /api/listening` with `{"listening": false}` or `true` | Stop or start listening |
 | `POST /api/triggers/<id>/test` | Show a word trigger's image |
+| `POST /api/hotkeys/<n>/press` | Do what hotkey number `n` (from 0, in the setup page's order) does |
 | `PUT /api/compute` with `{"device": "auto"}`, `"cuda"` or `"cpu"` | Choose the processor |
 | `GET /api/status` | Current emotion, image and engine status |
 
@@ -269,7 +371,7 @@ The OBS address and password are saved in `config.yaml` on your PC only. They're
 
 ## Configuration file
 
-Settings are saved in `config.yaml`. With `run-cpu.bat`, `run-gpu.bat` or `uv run`, that's in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional; missing ones use their defaults. A few settings can only be changed here, and need a restart: the models, devices other than via the Processor card, the server address, hotkeys, upload limits and debug recording. OBS settings have their own card on the setup page.
+Settings are saved in `config.yaml`. With `run-cpu.bat`, `run-gpu.bat` or `uv run`, that's in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional; missing ones use their defaults. A few settings can only be changed here, and need a restart: the models, devices other than via the Processor card, the server address, upload limits and debug recording. Hotkeys and OBS settings have their own cards on the setup page.
 
 These are all the settings, with their defaults:
 
@@ -344,9 +446,22 @@ server:
   host: 127.0.0.1           # keep on localhost; nothing here is meant to be reachable from a network
   port: 8765
 
-hotkeys:                    # Windows only
+hotkeys:                    # Windows only; edited in the Hotkeys card, not in backups
   enabled: true
-  modifiers: ctrl+alt+shift # any of ctrl, alt, shift, win, joined with +
+  bindings:                 # defaults: ctrl+alt+shift + 0 (automatic) and + 1..7 (the emotions)
+  - keys: ctrl+alt+shift+0  # modifiers (ctrl, alt, shift, win) then one key, joined with +
+    action: auto            # auto, emotion, image or trigger
+  - keys: ctrl+alt+shift+1
+    action: emotion
+    emotion: anger
+  # ... + 2..7 for disgust, fear, joy, neutral, sadness, surprise. Other kinds:
+  # - keys: f13
+  #   action: image
+  #   image_id: <id>        # any image; see GET /api/images
+  #   duration_s: null      # null = until pressed again, or 0.5-60 seconds
+  # - keys: ctrl+alt+g
+  #   action: trigger
+  #   trigger_id: <id>      # a word trigger; see GET /api/triggers
 
 obs:                        # OBS remote control (see "OBS scenes and filters"); not in backups
   enabled: false
@@ -441,7 +556,7 @@ On the CPU the words-only result appears first, and the tone-of-voice result fol
 - **Audio stays in memory.** Sentences are processed and discarded. Nothing is written to disk unless you turn on `debug.save_audio` or `debug.save_transcripts`.
 - **Transcripts aren't logged** at the default log level. Only timings and the detected emotion are.
 - **No network after the first start,** except when you add an image from a link (only that link is fetched). Models load from the local cache, and Hugging Face is contacted only if a model is missing. Telemetry is turned off. To check, run with `--log-level DEBUG` and look for HTTP requests.
-- **Hotkeys don't watch your keyboard.** They're registered with Windows' `RegisterHotKey`, which only reports the app's own key combinations. There's no keyboard hook. Turn them off with `hotkeys.enabled: false`.
+- **Hotkeys don't watch your keyboard.** They're registered with Windows' `RegisterHotKey`, which only reports the app's own key combinations. There's no keyboard hook. Turn them off with **Hotkeys on** on the setup page.
 - **The overlay never receives transcripts.** Only the setup page gets them.
 - **Calibration keeps only numbers.** `data/calibration.json` holds fitted corrections and accuracy figures, not your recordings or words. It's left out of backups.
 - **OBS control is off unless you turn it on.** Then the app connects only to the OBS address you enter, and sends only scene and filter changes. The OBS password is kept in `config.yaml` and never sent to the setup page.
@@ -488,7 +603,7 @@ If you start the app by hand, use `uv run --extra gpu ...`. A plain `uv run` rei
 
 **The image changes too often.** Turn on one of the Stability settings, for example "Sentences before switching" = 2 or "Minimum time on screen" = 3 s.
 
-**Hotkeys don't work.** They're Windows only. The setup page lists any combinations another app already uses. Change `hotkeys.modifiers` in `config.yaml` and restart.
+**Hotkeys don't work.** They're Windows only. The setup page marks any combination another app already uses; click it and press different keys. Some combinations are reserved by Windows (such as Ctrl+Alt+Delete or many Win + letter keys) and can't be used.
 
 **OBS won't connect.** Check that OBS is running, that **Enable WebSocket server** is ticked in **Tools → WebSocket Server Settings**, and that the port and password match **Show Connect Info**. "OBS refused the connection" means the password is wrong.
 

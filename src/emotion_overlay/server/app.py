@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -19,11 +20,18 @@ from emotion_overlay.audio.capture import InputDevice, list_input_devices, pick_
 from emotion_overlay.backup import BackupError, export_setup, read_setup
 from emotion_overlay.calibration import Calibration, CalibrationError, CalibrationStore, SpeechStats
 from emotion_overlay.compute import GpuInfo, gpu_info
-from emotion_overlay.config import AppConfig, ObsConfig, save_config
+from emotion_overlay.config import (
+    AppConfig,
+    HotkeyBinding,
+    HotkeyConfig,
+    ObsConfig,
+    default_hotkeys,
+    save_config,
+)
 from emotion_overlay.emotions import EMOTIONS, IMAGE_GROUPS, NEUTRAL, Scores
 from emotion_overlay.fetch import FetchError, fetch_image
-from emotion_overlay.hotkeys import HotkeyListener, describe, key_emotion
-from emotion_overlay.images import FORMATS, TIERS, ImageStore, ImageValidationError
+from emotion_overlay.hotkeys import HotkeyListener, describe_keys
+from emotion_overlay.images import FORMATS, TIERS, ImageRecord, ImageStore, ImageValidationError
 from emotion_overlay.obs import ObsController, ObsError
 from emotion_overlay.paths import web_dir
 from emotion_overlay.pipeline import PipelineEvents
@@ -87,7 +95,24 @@ class ObsMappingRequest(BaseModel):
 
 
 class ManualRequest(BaseModel):
-    emotion: str | None  # None = back to detected emotions
+    # Both None = back to detected emotions.
+    emotion: str | None = None
+    image_id: str | None = None  # hold this one image instead of an emotion
+
+
+class HotkeysRequest(BaseModel):
+    enabled: bool
+    bindings: list[dict[str, Any]]  # validated as HotkeyConfig
+
+
+class CaptureRequest(BaseModel):
+    capturing: bool
+
+
+# While the setup page records a new key combination, the hotkeys are switched off
+# (Windows would deliver an already-registered combination to us, not the browser).
+# They come back on their own after this long if the page never says it's done.
+CAPTURE_TIMEOUT_S = 30.0
 
 
 class SaveCalibrationRequest(BaseModel):
@@ -153,11 +178,8 @@ def create_app(
     def on_state(state: EmotionState, new_utterance: bool) -> None:
         show(display.apply(state, new_utterance))
 
-    def fire_trigger(trigger: Trigger, phrase: str) -> bool:
-        image = store.get(trigger.image_id)
-        if image is None:
-            return False
-        message, token = display.trigger(image, phrase)
+    def show_for(image: ImageRecord, label: str, seconds: float, source: str) -> None:
+        message, token = display.trigger(image, label, source)
         show(message)
 
         def end() -> None:
@@ -165,7 +187,13 @@ def create_app(
             if ended:
                 show(ended)
 
-        hub.call_later(trigger.duration_s, end)
+        hub.call_later(seconds, end)
+
+    def fire_trigger(trigger: Trigger, phrase: str) -> bool:
+        image = store.get(trigger.image_id)
+        if image is None:
+            return False
+        show_for(image, phrase, trigger.duration_s, "word")
         return True
 
     def on_words(text: str) -> None:
@@ -176,24 +204,88 @@ def create_app(
     def set_manual(emotion: str | None) -> None:
         show(display.set_manual(emotion))
 
-    def on_hotkey(digit: int) -> None:
-        emotion = key_emotion(digit)
-        set_manual(None if emotion == display.manual else emotion)  # same key again releases
+    def run_hotkey(binding: HotkeyBinding) -> bool:
+        """Do what a hotkey is bound to. False if its image or trigger no longer exists."""
+        if binding.action == "auto":
+            set_manual(None)
+        elif binding.action == "emotion":
+            # The same key again releases.
+            set_manual(None if binding.emotion == display.manual else binding.emotion)
+        elif binding.action == "image":
+            image = store.get(binding.image_id or "")
+            if image is None:
+                return False
+            if binding.duration_s:
+                show_for(image, image.original_name, binding.duration_s, "hotkey")
+            elif display.held_image == image.id:
+                set_manual(None)  # the same key again releases
+            else:
+                show(display.hold_image(image))
+        elif binding.action == "trigger":
+            trigger = triggers.get(binding.trigger_id or "")
+            return trigger is not None and fire_trigger(trigger, trigger.phrases[0])
+        return True
+
+    hotkey_lock = threading.Lock()
+    active: list[HotkeyBinding] = []  # what the listener has registered, by index
+    capture = {"token": 0, "on": False}
+
+    def on_hotkey(index: int) -> None:
+        bindings = active  # a restart swaps the list, never edits it
+        if 0 <= index < len(bindings) and not run_hotkey(bindings[index]):
+            log.info("Hotkey %s points to something that was deleted", bindings[index].keys)
 
     hotkeys = hotkey_factory(on_hotkey) if hotkey_factory else None
 
-    def manual_info() -> dict[str, Any]:
-        problem = None
+    def start_hotkeys() -> None:
+        """(Re)register the configured hotkeys; none while turned off or capturing keys."""
+        nonlocal active
         if hotkeys is None:
-            problem = "turned off in config.yaml (hotkeys.enabled)"
-        elif hotkeys.error:
-            problem = hotkeys.error
-        elif hotkeys.failed:
-            taken = ", ".join(str(d) for d in hotkeys.failed)
-            problem = f"another app already uses the keys for {taken}"
+            return
+        with hotkey_lock:
+            hotkeys.stop()
+            wanted = config.hotkeys.enabled and not capture["on"]
+            active = list(config.hotkeys.bindings) if wanted else []
+            if active:
+                hotkeys.start([b.keys for b in active])
+
+    def hotkeys_problem() -> str | None:
+        if hotkeys is None:
+            return "not available in this mode"
+        if not config.hotkeys.enabled:
+            return "turned off"
+        return hotkeys.error
+
+    def binding_problem(index: int, binding: HotkeyBinding) -> str | None:
+        if binding.action == "image" and store.get(binding.image_id or "") is None:
+            return "its image was deleted"
+        if binding.action == "trigger" and triggers.get(binding.trigger_id or "") is None:
+            return "its word trigger was deleted"
+        registered = bool(active) and active == config.hotkeys.bindings
+        if registered and hotkeys is not None and index in hotkeys.failed:
+            return "another app already uses these keys"
+        return None
+
+    def hotkeys_info() -> dict[str, Any]:
+        return {
+            "enabled": config.hotkeys.enabled,
+            "problem": hotkeys_problem(),
+            "capturing": capture["on"],
+            "bindings": [
+                {
+                    **b.model_dump(mode="json"),
+                    "label": describe_keys(b.keys),
+                    "problem": binding_problem(i, b),
+                }
+                for i, b in enumerate(config.hotkeys.bindings)
+            ],
+        }
+
+    def manual_info() -> dict[str, Any]:
         return {
             "emotion": display.manual,
-            "hotkeys": {"modifiers": describe(config.hotkeys.modifiers), "problem": problem},
+            "image_id": display.held_image,
+            "hotkeys": {"problem": hotkeys_problem()},
         }
 
     def persist() -> None:
@@ -227,8 +319,7 @@ def create_app(
         hub.bind_loop(asyncio.get_running_loop())
         if engine:
             engine.start()
-        if hotkeys:
-            hotkeys.start()
+        start_hotkeys()
         if obs:
             obs.start()
             hub.publish(obs.status())
@@ -328,10 +419,75 @@ def create_app(
 
     @app.put("/api/manual")
     def put_manual(body: ManualRequest) -> dict[str, Any]:
-        """Hold an emotion on screen (e.g. from a Stream Deck), or null to release it."""
+        """Hold an emotion or one image on screen (e.g. from a Stream Deck), or
+        send neither to go back to detected emotions."""
+        if body.emotion is not None and body.image_id is not None:
+            raise HTTPException(400, "Hold an emotion or an image, not both")
+        if body.image_id is not None:
+            image = store.get(body.image_id)
+            if image is None:
+                raise HTTPException(404, "Image not found")
+            show(display.hold_image(image))
+            return manual_info()
         if body.emotion is not None and body.emotion not in EMOTIONS:
             raise HTTPException(400, f"Unknown emotion '{body.emotion}'")
         set_manual(body.emotion)
+        return manual_info()
+
+    # --- hotkeys ------------------------------------------------------------
+
+    @app.get("/api/hotkeys")
+    def get_hotkeys() -> dict[str, Any]:
+        return hotkeys_info()
+
+    @app.put("/api/hotkeys")
+    def put_hotkeys(body: HotkeysRequest) -> dict[str, Any]:
+        """Replace the whole list of hotkeys; it applies right away."""
+        try:
+            new = HotkeyConfig.model_validate(body.model_dump())
+        except ValidationError as exc:
+            problems = "; ".join(
+                e["msg"].removeprefix("Value error, ") for e in exc.errors(include_url=False)
+            )
+            raise HTTPException(400, problems) from exc
+        config.hotkeys.enabled, config.hotkeys.bindings = new.enabled, new.bindings
+        persist()
+        start_hotkeys()
+        return hotkeys_info()
+
+    # Literal paths before the {index} route below.
+    @app.post("/api/hotkeys/reset")
+    def reset_hotkeys() -> dict[str, Any]:
+        config.hotkeys.bindings = default_hotkeys()
+        persist()
+        start_hotkeys()
+        return hotkeys_info()
+
+    @app.put("/api/hotkeys/capture")
+    def put_capture(body: CaptureRequest) -> dict[str, Any]:
+        """Switch the hotkeys off while the setup page records a new combination."""
+        capture["token"] += 1
+        capture["on"] = body.capturing
+        start_hotkeys()
+        if body.capturing:
+            token = capture["token"]
+
+            def give_up() -> None:
+                if capture["token"] == token and capture["on"]:
+                    capture["on"] = False
+                    start_hotkeys()
+
+            hub.call_later(CAPTURE_TIMEOUT_S, give_up)
+        return hotkeys_info()
+
+    @app.post("/api/hotkeys/{index}/press")
+    def press_hotkey(index: int) -> dict[str, Any]:
+        """Do what a hotkey does without pressing it (setup page "Test", Stream Deck)."""
+        bindings = config.hotkeys.bindings
+        if not 0 <= index < len(bindings):
+            raise HTTPException(404, "Hotkey not found")
+        if not run_hotkey(bindings[index]):
+            raise HTTPException(404, "That hotkey's image or word trigger was deleted")
         return manual_info()
 
     def compute_info() -> dict[str, Any]:

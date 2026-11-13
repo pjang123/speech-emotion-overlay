@@ -833,3 +833,85 @@ table.accuracy td {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* --- hotkeys --- */
+.hotkeys {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.hotkey-row {
+  display: grid;
+  grid-template-columns: minmax(130px, auto) minmax(0, 170px) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+@media (max-width: 640px) {
+  .hotkey-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .hotkey-row > select,
+  .hotkey-row > .hotkey-image,
+  .hotkey-row > span {
+    grid-column: 1 / -1;
+  }
+}
+
+.hotkey-row select,
+.hotkey-row input {
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  color: inherit;
+  background: var(--card);
+}
+
+.hotkey-row button.secondary {
+  padding: 3px 10px;
+  font-size: 13px;
+}
+
+.hotkey-row button.hotkey-keys {
+  padding: 5px 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+button.capturing {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hotkey-image {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hotkey-image .picker {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.hotkey-image select {
+  flex: 0 1 auto;
+}
+
+.hotkey-problem {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--bad);
+}

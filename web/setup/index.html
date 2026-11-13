@@ -95,6 +95,21 @@
 
     <section class="card">
       <div class="card-head">
+        <h2>Hotkeys</h2>
+        <button id="hotkeys-reset" class="secondary">Reset to defaults</button>
+      </div>
+      <p class="hint">Keys that work in any app, even while a game has focus. Click a key combination to change it, then press the new keys. Each one can hold an emotion, show any image (including your word-trigger images), fire a word trigger, or go back to automatic. A held emotion or image stays until you press its keys again or a "Back to automatic" key. Keys need Ctrl, Alt or Win so they don't block typing; F1–F24, Pause and Scroll Lock also work on their own, which suits a Stream Deck or macro pad. Windows only. These stay on this PC and aren't included in backups.</p>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="hotkeys-enabled"> Hotkeys on</label>
+        <button id="hotkey-add">Add hotkey</button>
+      </div>
+      <p id="hotkeys-problem" class="msg error"></p>
+      <div id="hotkeys" class="hotkeys"></div>
+      <p id="hotkeys-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
         <h2>Settings</h2>
         <button id="settings-reset" class="secondary">Reset to defaults</button>
       </div>

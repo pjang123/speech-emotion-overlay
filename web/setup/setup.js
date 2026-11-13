@@ -327,6 +327,7 @@ async function loadImages() {
 async function loadTriggers() {
   ui.triggers = (await api("/api/triggers")).triggers;
   renderTriggers();
+  await loadHotkeys(); // hotkeys pick from the images and triggers, and warn when one is deleted
 }
 
 // A dropdown that shows a small preview of each image or GIF next to its name
@@ -1052,13 +1053,15 @@ function renderState(msg) {
   $("emotion").textContent = msg.emotion;
   $("confidence").textContent = msg.confidence && !msg.manual ? `${Math.round(msg.confidence * 100)}%` : "";
   $("reason").textContent = msg.trigger
-    ? `word trigger “${msg.trigger}”`
-    : msg.manual
-      ? `held by hand (detected: ${msg.detected})`
-      : msg.reason === "scores"
-        ? `${msg.tier}`
-        : msg.reason;
-  renderManual(msg.manual ?? null);
+    ? `${msg.trigger_source === "hotkey" ? "hotkey image" : "word trigger"} “${msg.trigger}”`
+    : msg.held_image
+      ? `holding “${msg.held_image}” (detected: ${msg.detected})`
+      : msg.manual
+        ? `held by hand (detected: ${msg.detected})`
+        : msg.reason === "scores"
+          ? `${msg.tier}`
+          : msg.reason;
+  renderManual(msg.held_image ? "held" : (msg.manual ?? null)); // "held" lights no button
   const img = $("preview-img");
   img.hidden = !msg.image;
   $("preview-empty").hidden = Boolean(msg.image);
@@ -1183,15 +1186,246 @@ async function loadManual() {
   $("manual-buttons").replaceChildren(auto, ...buttons);
 
   const info = await api("/api/manual");
-  renderManual(info.emotion);
-  const keys = info.hotkeys.modifiers;
-  const list = ui.emotions.map((emotion, i) => `${i + 1} ${emotion}`).join(", ");
+  renderManual(info.image_id ? "held" : info.emotion);
   flash(
     "manual-hint",
-    info.hotkeys.problem
-      ? `Keeps showing that emotion until you press Automatic. Hotkeys are off: ${info.hotkeys.problem}.`
-      : `Keeps showing that emotion until you press Automatic. Hotkeys work in any app: ${keys} + ${list}; ${keys} + 0 = automatic (or press the same key again).`,
+    "Keeps showing that emotion until you press Automatic. To do this from any app, set up keys under Hotkeys below.",
   );
+}
+
+// --- hotkeys ----------------------------------------------------------------------
+
+const HOTKEY_ACTIONS = [
+  ["emotion", "Hold an emotion"],
+  ["image", "Show an image"],
+  ["trigger", "Fire a word trigger"],
+  ["auto", "Back to automatic"],
+];
+
+// KeyboardEvent.code -> the key names the server understands (see hotkeys.py).
+// Codes name physical keys, so this doesn't depend on the keyboard layout.
+const CODE_KEYS = {
+  Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\",
+  Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backquote: "`",
+  Space: "space", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+  Home: "home", End: "end", PageUp: "pageup", PageDown: "pagedown", Insert: "insert",
+  Delete: "delete", Pause: "pause", ScrollLock: "scrolllock",
+  NumpadMultiply: "nummultiply", NumpadAdd: "numadd", NumpadSubtract: "numsubtract",
+  NumpadDecimal: "numdecimal", NumpadDivide: "numdivide",
+};
+const MODIFIER_CODE = /^(Control|Alt|Shift|Meta|OS)(Left|Right)?$/;
+
+function keyName(code) {
+  let m;
+  if ((m = /^Key([A-Z])$/.exec(code))) return m[1].toLowerCase();
+  if ((m = /^Digit(\d)$/.exec(code))) return m[1];
+  if ((m = /^Numpad(\d)$/.exec(code))) return `num${m[1]}`;
+  if (/^F([1-9]|1\d|2[0-4])$/.test(code)) return code.toLowerCase();
+  return CODE_KEYS[code] ?? null;
+}
+
+// Waits for a key combination and resolves with it ("ctrl+alt+k"), or null on Esc.
+// The hotkeys are switched off meanwhile: Windows would hand an already-used
+// combination to this app instead of the browser.
+async function captureKeys(target) {
+  const before = target.textContent;
+  target.textContent = "Press the keys… (Esc cancels)";
+  target.classList.add("capturing");
+  try {
+    await sendJson("/api/hotkeys/capture", "PUT", { capturing: true });
+  } catch {
+    // capturing still works for combinations that aren't in use
+  }
+  const combo = await new Promise((resolve) => {
+    const swallow = (e) => e.preventDefault(); // e.g. Alt focusing the browser menu
+    function done(value) {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", swallow, true);
+      window.removeEventListener("blur", cancel);
+      resolve(value);
+    }
+    const cancel = () => done(null);
+    function onKey(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (MODIFIER_CODE.test(e.code)) return; // wait for the actual key
+      const mods = [e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && "shift", e.metaKey && "win"].filter(Boolean);
+      if (e.code === "Escape" && !mods.length) return done(null);
+      const key = keyName(e.code);
+      if (!key) {
+        target.textContent = `${e.key} can't be used; try another key (Esc cancels)`;
+        return;
+      }
+      done([...mods, key].join("+"));
+    }
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", swallow, true);
+    window.addEventListener("blur", cancel);
+  });
+  target.classList.remove("capturing");
+  target.textContent = before;
+  try {
+    await sendJson("/api/hotkeys/capture", "PUT", { capturing: false });
+  } catch {
+    // they come back by themselves after a short while
+  }
+  return combo;
+}
+
+const plainBinding = ({ keys, action, emotion, image_id, trigger_id, duration_s }) => ({
+  keys, action, emotion, image_id, trigger_id, duration_s,
+});
+
+async function saveHotkeys(bindings, enabled = ui.hotkeys.enabled, message = "Saved.") {
+  try {
+    renderHotkeys(await sendJson("/api/hotkeys", "PUT", { enabled, bindings }));
+    flash("hotkeys-msg", message);
+    return true;
+  } catch (err) {
+    flash("hotkeys-msg", err.message, true);
+    renderHotkeys(ui.hotkeys); // undo what the controls show
+    return false;
+  }
+}
+
+function saveHotkey(index, changes) {
+  const bindings = ui.hotkeys.bindings.map(plainBinding);
+  bindings[index] = { ...bindings[index], ...changes };
+  return saveHotkeys(bindings);
+}
+
+const triggerLabel = (t) => t.phrases.map((p) => `“${p}”`).join(", ");
+const firstImage = () => (ui.images.find((img) => img.emotion === "trigger") ?? ui.images[0])?.id;
+
+// What a hotkey gets when it's switched to `action`, or null (with a message) if it can't be.
+function defaultsFor(action) {
+  if (action === "emotion") return { emotion: ui.emotions.includes("neutral") ? "neutral" : ui.emotions[0] };
+  if (action === "image") {
+    const id = firstImage();
+    if (!id) flash("hotkeys-msg", "Upload an image first (Images above).", true);
+    return id ? { image_id: id, duration_s: null } : null;
+  }
+  if (action === "trigger") {
+    if (!ui.triggers.length) flash("hotkeys-msg", "Add a word trigger first (Word triggers above).", true);
+    return ui.triggers.length ? { trigger_id: ui.triggers[0].id } : null;
+  }
+  return {};
+}
+
+function select(options, value, onChange) {
+  const node = el("select", {}, ...options.map(([v, label]) => el("option", { value: v, textContent: label })));
+  node.value = value;
+  node.addEventListener("change", () => onChange(node.value));
+  return node;
+}
+
+function hotkeyTarget(b, index) {
+  if (b.action === "emotion") {
+    return select(ui.emotions.map((e) => [e, e]), b.emotion, (emotion) => saveHotkey(index, { emotion }));
+  }
+  if (b.action === "trigger") {
+    const options = ui.triggers.map((t) => [t.id, triggerLabel(t)]);
+    if (!ui.triggers.some((t) => t.id === b.trigger_id)) options.unshift([b.trigger_id, "(deleted trigger)"]);
+    return select(options, b.trigger_id, (trigger_id) => saveHotkey(index, { trigger_id }));
+  }
+  if (b.action === "image") {
+    const seconds = el("input", { type: "number", min: 0.5, max: 60, step: 0.5, value: b.duration_s ?? 3 });
+    const secondsLabel = el("label", { className: "inline", title: "Seconds to show the image" }, seconds, " s");
+    secondsLabel.hidden = b.duration_s === null;
+    seconds.addEventListener("change", () => saveHotkey(index, { duration_s: Number(seconds.value) || 3 }));
+    const mode = select(
+      [["hold", "until pressed again"], ["timed", "for a few seconds"]],
+      b.duration_s === null ? "hold" : "timed",
+      (value) => saveHotkey(index, { duration_s: value === "hold" ? null : Number(seconds.value) || 3 }),
+    );
+    return el(
+      "div",
+      { className: "hotkey-image" },
+      imagePicker(b.image_id, (image_id) => saveHotkey(index, { image_id })),
+      mode,
+      secondsLabel,
+    );
+  }
+  return el("span", { className: "muted small", textContent: "Shows detected emotions again" });
+}
+
+function hotkeyRow(b, index) {
+  const keys = el("button", {
+    type: "button",
+    className: "secondary hotkey-keys",
+    textContent: b.label,
+    title: "Click, then press the new keys",
+  });
+  keys.addEventListener("click", async () => {
+    const combo = await captureKeys(keys);
+    if (combo) await saveHotkey(index, { keys: combo });
+  });
+  const action = select(HOTKEY_ACTIONS, b.action, (value) => {
+    const defaults = defaultsFor(value);
+    if (defaults) saveHotkey(index, { action: value, ...defaults });
+    else action.value = b.action;
+  });
+  const test = button("Test", () => testHotkey(index));
+  const remove = el("button", { className: "icon danger", title: "Delete hotkey", textContent: "✕" });
+  remove.addEventListener("click", () => {
+    const bindings = ui.hotkeys.bindings.map(plainBinding).filter((_, i) => i !== index);
+    saveHotkeys(bindings, ui.hotkeys.enabled, "Hotkey deleted.");
+  });
+  const row = el("div", { className: "hotkey-row" }, keys, action, hotkeyTarget(b, index), test, remove);
+  if (b.problem) row.append(el("p", { className: "hotkey-problem small", textContent: `Not working: ${b.problem}.` }));
+  return row;
+}
+
+function renderHotkeys(info) {
+  ui.hotkeys = info;
+  $("hotkeys-enabled").checked = info.enabled;
+  flash("hotkeys-problem", info.problem && info.enabled ? `Hotkeys are off: ${info.problem}.` : "", true);
+  const rows = info.bindings.map(hotkeyRow);
+  $("hotkeys").replaceChildren(
+    ...(rows.length ? rows : [el("p", { className: "muted small", textContent: "No hotkeys yet." })]),
+  );
+}
+
+async function loadHotkeys() {
+  try {
+    renderHotkeys(await api("/api/hotkeys"));
+  } catch (err) {
+    flash("hotkeys-msg", err.message, true);
+  }
+}
+
+async function addHotkey() {
+  if (!ui.hotkeys) return;
+  const combo = await captureKeys($("hotkey-add"));
+  if (!combo) return;
+  // New hotkeys hold an image if there is one: emotions already have keys by default.
+  const id = firstImage();
+  const binding = id
+    ? { keys: combo, action: "image", image_id: id, duration_s: null }
+    : { keys: combo, action: "emotion", emotion: "neutral" };
+  const bindings = [...ui.hotkeys.bindings.map(plainBinding), binding];
+  if (await saveHotkeys(bindings, ui.hotkeys.enabled, "Hotkey added. Pick what it does.")) {
+    $("hotkeys").lastElementChild?.scrollIntoView({ block: "nearest" });
+  }
+}
+
+async function testHotkey(index) {
+  try {
+    await api(`/api/hotkeys/${index}/press`, { method: "POST" });
+    flash("hotkeys-msg", "Done; check the Live preview.");
+  } catch (err) {
+    flash("hotkeys-msg", err.message, true);
+  }
+}
+
+async function resetHotkeys() {
+  if (!confirm("Replace all hotkeys with the defaults (Ctrl+Alt+Shift + 1–7 for the emotions, + 0 for automatic)?")) return;
+  try {
+    renderHotkeys(await api("/api/hotkeys/reset", { method: "POST" }));
+    flash("hotkeys-msg", "Hotkeys reset.");
+  } catch (err) {
+    flash("hotkeys-msg", err.message, true);
+  }
 }
 
 // --- init -----------------------------------------------------------------------
@@ -1216,6 +1450,12 @@ async function init() {
   $("import-btn").addEventListener("click", () => $("import-file").click());
   $("import-file").addEventListener("change", importSetup);
 
+  $("hotkey-add").addEventListener("click", addHotkey);
+  $("hotkeys-reset").addEventListener("click", resetHotkeys);
+  $("hotkeys-enabled").addEventListener("change", () =>
+    saveHotkeys(ui.hotkeys.bindings.map(plainBinding), $("hotkeys-enabled").checked,
+      $("hotkeys-enabled").checked ? "Hotkeys on." : "Hotkeys off."),
+  );
   $("trigger-add").addEventListener("click", addTrigger);
   $("trigger-phrases").addEventListener("keydown", (e) => e.key === "Enter" && addTrigger());
 
