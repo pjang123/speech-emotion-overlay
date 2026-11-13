@@ -30,12 +30,17 @@ class VadConfig(BaseModel):
     max_utterance_s: float = Field(6.0, ge=1.0, le=30.0)
 
 
+OLD_GPU_MODEL = "small.en"
+DEFAULT_GPU_MODEL = "large-v3-turbo"
+
+
 class AsrConfig(BaseModel):
     backend: Literal["auto", "faster-whisper", "transformers"] = "auto"
     model: str = "base.en"  # used on the CPU
-    # Used when speech-to-text runs on the GPU: more accurate on casual or noisy speech,
-    # and fast enough there (~125 ms vs ~1.2 s per sentence on a CPU).
-    gpu_model: str = "small.en"
+    # Used when speech-to-text runs on the GPU. Measured on an RTX 5070: ~110 ms per
+    # sentence, as fast as small.en there and better on accents and noisy speech; on a
+    # CPU it would take ~5 s, so the CPU keeps the small model.
+    gpu_model: str = DEFAULT_GPU_MODEL
     device: Device = "auto"  # GPU if PyTorch can use one (see compute.py), else CPU
     compute_type: str = "int8"
     language: str | None = "en"
@@ -276,7 +281,8 @@ class DebugConfig(BaseModel):
 INTERIM_GPU_S = 0.5  # each check takes ~0.1 s on a GPU
 INTERIM_CPU_S = 1.0  # ~0.3 s on a CPU, which could delay the end-of-sentence result
 
-CONFIG_VERSION = 4  # 2: new default voice model; 3: automatic interim_s; 4: hotkey bindings
+# 2: new default voice model; 3: automatic interim_s; 4: hotkey bindings; 5: GPU Whisper
+CONFIG_VERSION = 5
 
 
 class AppConfig(BaseModel):
@@ -341,6 +347,10 @@ def _migrate(raw: dict[str, Any]) -> None:
                 ]
             except ValueError:
                 log.warning("Ignoring unusable hotkeys.modifiers %r", modifiers)
+    asr = raw.get("asr")
+    if version < 5 and isinstance(asr, dict) and asr.get("gpu_model") == OLD_GPU_MODEL:
+        log.info("Switching speech-to-text on the GPU to the new default, %s", DEFAULT_GPU_MODEL)
+        asr.pop("gpu_model")
     raw["config_version"] = CONFIG_VERSION
 
 

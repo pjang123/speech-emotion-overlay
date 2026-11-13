@@ -25,7 +25,12 @@ dependencies = [
 # NVIDIA GPU support (Windows/Linux): `uv sync --extra gpu`, about 3 GB. Then pick
 # "GPU" on the setup page. Without it, PyTorch is the CPU-only build.
 gpu = ["torch>=2.3"]
-cpu = ["torch>=2.3"]  # the default anyway; exists so uv can keep the two builds apart
+# AMD GPU support on Linux (ROCm 7.2; Radeon RX 7000/9000 and supported Instinct cards):
+# `uv sync --extra amd`. On Windows, AMD's own builds are installed by run-amd.bat.
+amd = ["torch>=2.3", "triton-rocm; sys_platform == 'linux'"]
+# CPU only. On Windows and macOS that's the default anyway. On Linux, PyPI's PyTorch
+# bundles NVIDIA's CUDA libraries (~4 GB more), so use `uv sync --extra cpu` there.
+cpu = ["torch>=2.3"]
 
 [project.scripts]
 emotion-overlay = "emotion_overlay.main:main"
@@ -37,14 +42,30 @@ build = [
 dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27"]
 
 [tool.uv]
-conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
+conflicts = [[{ extra = "cpu" }, { extra = "gpu" }, { extra = "amd" }]]
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu130", extra = "gpu", marker = "sys_platform != 'darwin'" }]
+torch = [
+    { index = "pytorch-cu130", extra = "gpu", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-rocm72", extra = "amd", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+]
+# The ROCm PyTorch build needs AMD's Triton, which is only on PyTorch's ROCm index.
+triton-rocm = [{ index = "pytorch-rocm72", extra = "amd", marker = "sys_platform == 'linux'" }]
 
 [[tool.uv.index]]
 name = "pytorch-cu130"  # CUDA 13 builds; cover RTX 50-series (Blackwell) and older cards
 url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"  # CPU-only builds, for Linux (PyPI's Linux build includes CUDA)
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm72"  # AMD ROCm 7.2 builds (Linux only)
+url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
 [build-system]

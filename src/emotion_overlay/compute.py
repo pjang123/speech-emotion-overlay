@@ -11,7 +11,10 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-INSTALL_HINT = "install GPU support with `uv sync --extra gpu`, then restart the app"
+INSTALL_HINT = (
+    "install GPU support (run-gpu.bat or `uv sync --extra gpu` for NVIDIA; run-amd.bat or "
+    "`uv sync --extra amd` on Linux for AMD), then restart the app"
+)
 
 
 @dataclass(frozen=True)
@@ -24,13 +27,25 @@ class GpuInfo:
         return asdict(self)
 
 
+def gpu_vendor() -> str | None:
+    """Which GPU this PyTorch build is for: "nvidia", "amd", or None (CPU-only). AMD's
+    ROCm builds answer through torch.cuda too, so the device is still called "cuda"."""
+    import torch
+
+    if getattr(torch.version, "hip", None):
+        return "amd"
+    return "nvidia" if torch.version.cuda else None
+
+
 def gpu_info() -> GpuInfo:
     import torch
 
-    if torch.version.cuda is None:
+    vendor = gpu_vendor()
+    if vendor is None:
         return GpuInfo(False, None, f"this copy of PyTorch is CPU-only: {INSTALL_HINT}")
     if not torch.cuda.is_available():
-        return GpuInfo(False, None, "no NVIDIA GPU (or its driver) was found")
+        what = "AMD GPU supported by ROCm" if vendor == "amd" else "NVIDIA GPU"
+        return GpuInfo(False, None, f"no {what} (or its driver) was found")
     return GpuInfo(True, torch.cuda.get_device_name(0), None)
 
 

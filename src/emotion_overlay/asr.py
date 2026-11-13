@@ -13,7 +13,7 @@ from typing import Protocol
 
 import numpy as np
 
-from emotion_overlay.compute import torch_device
+from emotion_overlay.compute import gpu_vendor, torch_device
 from emotion_overlay.config import AsrConfig
 from emotion_overlay.model_cache import load_cached
 
@@ -34,6 +34,8 @@ def faster_whisper_gpu_problem() -> str | None:
     """Why faster-whisper can't run on the GPU, or None if it may. Checks for the
     CUDA libraries itself instead of letting CTranslate2 find out."""
     global _faster_whisper_gpu_problem
+    if _faster_whisper_gpu_problem is None and gpu_vendor() == "amd":
+        _faster_whisper_gpu_problem = "faster-whisper (CTranslate2) only supports NVIDIA GPUs"
     if _faster_whisper_gpu_problem is None:
         import ctypes
 
@@ -96,6 +98,15 @@ class FasterWhisperTranscriber:
         return " ".join(p for p in parts if p)
 
 
+def hf_name(model: str) -> str:
+    """faster-whisper short names ("base.en", "distil-large-v3") as Hugging Face repos."""
+    if "/" in model:
+        return model
+    if model.startswith("distil-"):
+        return f"distil-whisper/{model}"
+    return f"openai/whisper-{model}"
+
+
 class TransformersWhisperTranscriber:
     backend = "transformers"
 
@@ -104,12 +115,19 @@ class TransformersWhisperTranscriber:
 
         self._config = config
         self.model = config.model
-        # faster-whisper short names ("base.en") map to the original OpenAI checkpoints.
-        name = config.model if "/" in config.model else f"openai/whisper-{config.model}"
+        name = hf_name(config.model)
         self.device = device
         log.info("Loading Whisper '%s' (transformers, %s)...", name, self.device)
         self._processor = load_cached(WhisperProcessor.from_pretrained, name)
-        model = load_cached(WhisperForConditionalGeneration.from_pretrained, name)
+        import torch
+
+        # Half precision on the GPU (standard for Whisper, faster); full on the CPU. Set
+        # explicitly: transformers otherwise uses the checkpoint's own type, and the
+        # large-v3 family is stored in float16, which the CPU handles badly.
+        self._dtype = torch.float16 if device == "cuda" else torch.float32
+        model = load_cached(
+            WhisperForConditionalGeneration.from_pretrained, name, dtype=self._dtype
+        )
         self._model = model.to(self.device).eval()
         self._english_only = name.endswith(".en")
         # Whisper writes "you" or "Thank you." for noise. faster-whisper drops text whose
@@ -126,7 +144,7 @@ class TransformersWhisperTranscriber:
 
         features = self._processor(
             audio, sampling_rate=SAMPLE_RATE, return_tensors="pt"
-        ).input_features.to(self.device)
+        ).input_features.to(self.device, dtype=self._dtype)
         kwargs: dict[str, object] = {"num_beams": self._config.beam_size}
         if not self._english_only:
             kwargs["task"] = "transcribe"

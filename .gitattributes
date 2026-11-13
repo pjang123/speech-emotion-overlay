@@ -1,0 +1,3 @@
+# cmd needs CRLF line endings in batch files (labels and goto can break with LF),
+# including in GitHub's "Download ZIP", which applies these rules.
+*.bat text eol=crlf

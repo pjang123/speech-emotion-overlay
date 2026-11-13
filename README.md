@@ -1,12 +1,13 @@
 # Emotion Overlay
 
-Emotion Overlay listens to your microphone, works out the emotion in what you're saying, and shows an image you picked for that emotion. It's built for streamers and PNGTubers: add one URL to OBS as a Browser Source, and your on-screen image reacts to you, with no webcam and no hotkeys needed.
+Emotion Overlay listens to your microphone, works out the emotion in what you're saying, and shows an image you picked for that emotion. It's built for streamers: add one URL to OBS as a Browser Source, and your on-screen image reacts to you, with no webcam and no hotkeys needed.
 
 Everything runs on your own PC. Your audio never leaves it.
 
 - Recognises **7 emotions**: anger, disgust, fear, joy, neutral, sadness and surprise.
 - Reads both **what you say** (speech-to-text, then a text emotion model) and **how you say it** (a tone-of-voice model), then combines them.
-- Reacts in about **0.55 s** after you stop talking on an NVIDIA GPU, or about **0.8 s** on a CPU. During long sentences it can change before you pause.
+- Reacts in about **0.55 s** after you stop talking on an NVIDIA GPU, or about **0.8 s** on a CPU. AMD Radeon GPUs are supported too, but **AMD support hasn't been tested on a real AMD card yet**. During long sentences it can change before you pause.
+- Runs on **Windows** and **Linux**: see the [Windows](INSTALL-Windows.md) and [Linux](INSTALL-Linux.md) installation guides.
 - Your own images and GIFs, effects, word triggers ("gg", "bruh"), slang, hotkeys, OBS scene and filter switching, live settings and per-voice calibration, all set up in a local web page.
 
 ## Contents
@@ -14,8 +15,7 @@ Everything runs on your own PC. Your audio never leaves it.
 - [Beginner's guide](#beginners-guide)
 - [Features](#features)
 - [Requirements](#requirements)
-- [Install](#install)
-- [Start the app](#start-the-app)
+- [Install and start](#install-and-start)
 - [Quick start](#quick-start)
 - [Add the overlay to OBS](#add-the-overlay-to-obs)
 - [The setup page](#the-setup-page)
@@ -24,7 +24,7 @@ Everything runs on your own PC. Your audio never leaves it.
 - [Configuration file](#configuration-file)
 - [Command-line options](#command-line-options)
 - [How it works](#how-it-works)
-- [Accuracy and speed](#accuracy-and-speed)
+- [Accuracy and speed](#accuracy-and-speed) (emotion, speech-to-text, speed)
 - [Privacy](#privacy)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
@@ -35,7 +35,7 @@ Everything runs on your own PC. Your audio never leaves it.
 
 ## Beginner's guide
 
-New to this kind of thing? This part walks you through everything with no technical knowledge needed. It's written for Windows 10 and 11. The rest of this page goes into more detail, but you don't need to read it to get started.
+New to this kind of thing? This part walks you through everything with no technical knowledge needed. It's written for Windows 10 and 11. On Linux, follow the [Linux installation guide](INSTALL-Linux.md) instead of Steps 1 and 2, then continue here from Step 3. The rest of this page goes into more detail, but you don't need to read it to get started.
 
 ### What it does, in one sentence
 
@@ -47,7 +47,7 @@ You'll need:
 
 - A Windows PC.
 - A microphone.
-- About 3 GB of free disk space.
+- About 3.5 GB of free disk space (about 7 GB to use an NVIDIA graphics card, 10 GB or more for an AMD one).
 - An internet connection for the first start only (the app downloads its "brain" once, about 2 GB).
 - [OBS Studio](https://obsproject.com/) if you want the pictures on your stream. You can also just watch them in your web browser.
 - Some pictures or GIFs of yourself, your character or anything you like, one or more for each mood.
@@ -60,7 +60,7 @@ You'll need:
 
 ### Step 2: Start it
 
-1. Open the folder and double-click **`run-cpu.bat`**. (If you have an NVIDIA graphics card, you can use **`run-gpu.bat`** instead. It's faster, but its first start downloads about 3 GB more.)
+1. Open the folder and double-click **`run-cpu.bat`**. If you have a gaming graphics card, you can use **`run-gpu.bat`** (NVIDIA) or **`run-amd.bat`** (AMD Radeon RX 7000 or 9000 series; not yet tested on a real AMD card) instead. They react faster and understand speech better, but their first start downloads several GB more. The [Windows installation guide](INSTALL-Windows.md) helps you choose.
 2. If Windows shows a blue "Windows protected your PC" box, click **More info**, then **Run anyway**.
 3. A black window opens with text scrolling by. **The very first time, this takes several minutes** while the app installs what it needs. Later starts take a few seconds.
 4. When the black window shows a line like `Setup page: http://127.0.0.1:8765/setup`, go on to Step 3.
@@ -112,7 +112,7 @@ None of these are needed, but they make it better:
 
 ### Using it again next time
 
-Double-click `run-cpu.bat` (or `run-gpu.bat`) again and wait for the setup page line. Your pictures and settings are remembered. OBS reconnects by itself once the app is running.
+Double-click the same launcher (`run-cpu.bat`, `run-gpu.bat` or `run-amd.bat`) again and wait for the setup page line. Your pictures and settings are remembered. OBS reconnects by itself once the app is running.
 
 ### If something isn't working
 
@@ -129,84 +129,50 @@ Double-click `run-cpu.bat` (or `run-gpu.bat`) again and wait for the setup page 
 - **Fallbacks.** An emotion with no images can borrow another emotion's images, or show your default image.
 - **Word triggers.** Say "gg" or "let's go" and a chosen image or GIF shows for a few seconds, then the emotion image comes back. Each trigger can list alternative spellings and has a Test button for checking it in OBS.
 - **Slang.** Triggers forgive how speech-to-text spells things: "sup" fires on "Wassup", "bruh" on "Bruhhhh", and "lol" on "L-O-L". Slang is also read as plain English before emotion scoring, so "lol" counts as "haha" and "that was fire" as "that was amazing". Without this the text model, trained on ordinary English, reads "lol" as neutral and "no cap that was fire" as anger.
-- **Updates while you talk.** During long sentences, the words so far are re-checked every second of speech, so the image can change before you pause.
+- **Updates while you talk.** During long sentences, the words so far are re-checked as you go (every 0.5 s of speech on a GPU, every 1 s on a CPU), so the image can change before you pause.
 - **Hotkeys you choose.** Global hotkeys work while a game has focus. Pick any key combination and what it does: hold an emotion, show any image (a word-trigger image or any other) until you press it again or for a few seconds, fire a word trigger, or go back to automatic. The setup page has buttons for holding emotions too, and a Stream Deck can do the same over HTTP.
 - **Calibration that adapts to you.** Read 14 short lines. The app learns how your voice and mic sound and profiles how you speak (pauses, volume against background noise, expressiveness). It then tests whether tone of voice helps for you and recommends settings, each with its reason. You choose which to apply.
-- **CPU or GPU.** Choose where the models run on the setup page. Switching takes effect while the app runs. GPU support is an optional install.
+- **CPU or GPU.** Choose where the models run on the setup page. Switching takes effect while the app runs. GPU support (NVIDIA, or AMD Radeon, which is untested so far) is an optional install.
 - **Live settings.** Every display and detection setting can be changed on the setup page while you stream. Changes apply immediately and are saved.
 - **Responsive by default.** The image follows every sentence. Optional anti-flicker controls (smoothing, a hold-off before switching, a minimum time on screen) give a calmer overlay if you want one.
 - **Transitions and effects.** Cross-fade, cut or bounce between images, plus an optional effect per emotion when its image appears: shake, pulse, jump, tremble or droop.
 - **OBS scenes and filters.** The emotion can switch OBS scenes, or turn a filter on (for example a red colour correction for anger), through OBS's built-in WebSocket server.
 - **Your mic is remembered by name,** so plugging in a headset or webcam doesn't switch the app to the wrong input.
-- **Stop/Start listening.** Pausing closes the microphone completely, so Windows' mic-in-use indicator goes off, and the overlay shows your neutral image.
+- **Stop/Start listening.** Pausing closes the microphone completely, so your system's mic-in-use indicator goes off, and the overlay shows your neutral image.
 - **Backup.** Export your whole setup (images, triggers and settings) as one zip, and import it on another PC or share it.
 
 ## Requirements
 
-- **Windows 10 or 11** (this is what it's developed and tested on). macOS and Linux should work for everything except the global hotkeys, but haven't been tested.
-- **Python 3.11 or newer**, and [uv](https://docs.astral.sh/uv/) (recommended) or pip.
-- **About 2 GB of disk space** for the models, which are downloaded on first start. GPU support needs about 3 GB more.
+- **Windows 10 or 11**, or **Linux** (64-bit, x86-64). It's developed on Windows. On Linux, the CPU and NVIDIA versions have been tested on Ubuntu 26.04, and everything except the global hotkeys works. macOS hasn't been tested.
 - **A microphone.** A dedicated input works best: "Stereo Mix" or a desktop-audio device would pick up game audio too.
-- **Optional:** an NVIDIA GPU, which makes it several times faster. About 2 GB of video memory is enough.
+- **Disk space:** about 3.5 GB, or about 7 GB with NVIDIA GPU support and 10 GB or more with AMD GPU support. Most of this is the models, downloaded on first start.
+- **Optional: a graphics card,** which makes the app react faster and lets it use a more accurate speech-to-text model. About 4 GB of video memory is enough.
+  - **NVIDIA:** GTX 10 series or newer, with driver version 580 or newer.
+  - **AMD:** Radeon RX 7000 or 9000 series. On Windows this needs AMD Software: Adrenalin Edition 26.2.2 or newer. On Linux, any GPU that ROCm 7.2 supports works. AMD support is new and hasn't been tested on AMD hardware yet.
 
-## Install
+Python 3.11 or newer and [uv](https://docs.astral.sh/uv/) are used, but you don't need to install them first. The Windows launchers install uv, and uv installs Python.
 
-1. Install uv by following the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/). On Windows you can skip this step: the launchers install uv themselves if it's missing. Or, in PowerShell:
+## Install and start
 
-   ```powershell
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-   ```
+Step-by-step guides, including updating and uninstalling:
 
-2. Download this repository: **Code → Download ZIP** on GitHub and unzip it, or use git:
+- **[Windows installation guide](INSTALL-Windows.md)**: download, then double-click `run-cpu.bat`, `run-gpu.bat` (NVIDIA) or `run-amd.bat` (AMD, untested).
+- **[Linux installation guide](INSTALL-Linux.md)**: install PortAudio and uv, then run `uv sync` and `uv run`.
 
-   ```sh
-   git clone https://github.com/pjang123/speech-emotion-overlay.git
-   cd speech-emotion-overlay
-   ```
-
-3. Install the dependencies. uv also installs a suitable Python if you don't have one:
-
-   ```sh
-   uv sync
-   ```
-
-   Without uv: create a virtual environment with Python 3.11+, then run `pip install .` in this folder.
-
-### NVIDIA GPU (optional)
-
-The default install uses the CPU-only build of PyTorch. To run the models on an NVIDIA GPU, install the CUDA build instead. It's about 3 GB:
+In short, with [uv](https://docs.astral.sh/uv/getting-started/installation/) installed, in the app's folder:
 
 ```sh
-uv sync --extra gpu
+uv sync && uv run python -m emotion_overlay                               # CPU (Windows)
+uv sync --extra cpu && uv run --extra cpu python -m emotion_overlay       # CPU (Linux)
+uv sync --extra gpu && uv run --extra gpu python -m emotion_overlay       # NVIDIA GPU
+uv sync --extra amd && uv run --extra amd python -m emotion_overlay       # AMD GPU, Linux only (untested)
 ```
 
-With pip, install the CUDA build first, then the app: `pip install torch --index-url https://download.pytorch.org/whl/cu130`, then `pip install .`.
-
-On Windows, `run-gpu.bat` (below) does this for you, in a separate environment so the CPU version keeps working.
-
-## Start the app
-
-On Windows, double-click one of the launchers in the project folder:
-
-| Launcher | Uses | Environment |
-|---|---|---|
-| `run-cpu.bat` | The CPU | `.venv` in the project folder |
-| `run-gpu.bat` | An NVIDIA GPU (or the CPU) | `%LOCALAPPDATA%\emotion-overlay\gpu-venv`, kept separate because it's about 3 GB. The first run installs it |
-
-Both install uv first if it isn't there yet, and keep the window open if something fails so you can read the error. Both use the same settings, images and calibration, so you can switch between them. Only run one at a time: if one is already running, starting the other just opens its setup page. Close the console window to quit.
-
-From a terminal, on any system:
-
-```sh
-uv run python -m emotion_overlay                   # CPU
-uv run --extra gpu python -m emotion_overlay       # GPU: keep --extra gpu, or uv puts the CPU build back
-```
-
-The first start downloads the models (about 1.8 GB, one time; the GPU version also downloads the larger `small.en` speech model, about 1 GB). After that the app starts offline.
+Keep the same `--extra` option on every `uv run`, or uv swaps in a different build of PyTorch. On Linux, a plain `uv sync` installs PyPI's PyTorch, which bundles NVIDIA's libraries (about 4 GB more), so use `--extra cpu` there. The first start downloads the models: about 2 GB, plus about 1.6 GB for the larger speech-to-text model (`large-v3-turbo`) the first time a GPU is used. After that the app starts offline.
 
 ## Quick start
 
-1. Start the app and open **http://127.0.0.1:8765/setup** (`run-cpu.bat` and `run-gpu.bat` print this address).
+1. Start the app and open **http://127.0.0.1:8765/setup** (the console prints this address).
 2. **Microphone:** pick the mic you talk into and click **Use this mic**.
 3. **Processor:** choose **Automatic (GPU if available)**. It uses the GPU when GPU support is installed and the CPU otherwise.
 4. **Images:** add at least one image per emotion you care about, plus one for neutral. Click ★ on an image to make it the default, which is shown for emotions that have no images of their own.
@@ -240,7 +206,7 @@ Pick an input and click **Use this mic**. The mic is remembered by name (and aud
 
 ### Processor
 
-Choose **Automatic (GPU if available)**, **GPU (NVIDIA)** or **CPU**. The card shows which GPU was found (or why the GPU can't be used) and where each model is running right now. Switching loads the models on the new device in the background, and the current models keep handling your speech until the new ones are ready. Switching isn't possible during the first few seconds after starting, while the models are still loading.
+Choose **Automatic (GPU if available)**, **GPU** or **CPU**. GPU means an NVIDIA card, or an AMD card when started with `run-amd.bat` or `--extra amd` (AMD is untested so far). The card shows which GPU was found (or why the GPU can't be used) and where each model is running right now. Switching loads the models on the new device in the background, and the current models keep handling your speech until the new ones are ready. Switching isn't possible during the first few seconds after starting, while the models are still loading.
 
 ### Live
 
@@ -371,7 +337,7 @@ The OBS address and password are saved in `config.yaml` on your PC only. They're
 
 ## Configuration file
 
-Settings are saved in `config.yaml`. With `run-cpu.bat`, `run-gpu.bat` or `uv run`, that's in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional; missing ones use their defaults. A few settings can only be changed here, and need a restart: the models, devices other than via the Processor card, the server address, upload limits and debug recording. Hotkeys and OBS settings have their own cards on the setup page.
+Settings are saved in `config.yaml` in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional; missing ones use their defaults. A few settings can only be changed here, and need a restart: the models, devices other than via the Processor card, the server address, upload limits and debug recording. Hotkeys and OBS settings have their own cards on the setup page.
 
 These are all the settings, with their defaults:
 
@@ -390,9 +356,9 @@ vad:                        # voice activity detection (Silero VAD)
 
 asr:                        # speech-to-text (Whisper)
   backend: auto             # auto | faster-whisper | transformers
-  model: base.en            # used on the CPU; any Whisper size, e.g. small.en (slower, more accurate)
-  gpu_model: small.en       # used when speech-to-text runs on the GPU
-  device: auto              # auto | cuda | cpu (the Processor card sets all three devices)
+  model: base.en            # used on the CPU; small.en is more accurate but ~3x slower
+  gpu_model: large-v3-turbo # used when speech-to-text runs on the GPU
+  device: auto              # auto | cuda | cpu; cuda means any GPU, AMD too (the Processor card sets all three)
   compute_type: int8        # faster-whisper precision
   language: en
   beam_size: 1              # higher is slower and slightly more accurate
@@ -491,7 +457,7 @@ data_dir: data              # images, triggers, calibration
 | `--self-test` | Load every model, run each once without a microphone, then exit. A good first check if something doesn't work |
 | `--log-level DEBUG` | Verbose logs, including transcripts and any network requests |
 
-The launchers pass options on, for example `run-gpu.bat --self-test`.
+The Windows launchers pass options on, for example `run-gpu.bat --self-test`.
 
 ## How it works
 
@@ -510,8 +476,8 @@ flowchart LR
     ws --> setup[Setup page]
 ```
 
-1. **Splitting speech into sentences.** [Silero VAD](https://github.com/snakers4/silero-vad) scores each 32 ms of audio for speech. A sentence ends after a 400 ms pause, and non-stop speech is cut every 6 s. While a sentence is still going, the part so far is re-checked every second of speech (words only).
-2. **Speech-to-text.** Whisper `base.en` runs through [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU the more accurate `small.en` runs through 🤗 transformers instead (about 125 ms per sentence there, against about 1.2 s on a CPU). Transformers is also the fallback when Windows blocks faster-whisper's native library. Either way, text Whisper thinks is noise is dropped; Whisper otherwise "hears" words like "you" in silence.
+1. **Splitting speech into sentences.** [Silero VAD](https://github.com/snakers4/silero-vad) scores each 32 ms of audio for speech. A sentence ends after a 400 ms pause, and non-stop speech is cut every 6 s. While a sentence is still going, the part so far is re-checked (words only) every 0.5 s of speech on a GPU or every 1 s on a CPU.
+2. **Speech-to-text.** Whisper `base.en` runs through [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU the much larger and more accurate `large-v3-turbo` runs instead, taking about 110 ms per sentence there (on a CPU it would take about 5 s). On a GPU it runs through faster-whisper if NVIDIA's CUDA 12 libraries are installed, and otherwise through 🤗 transformers, which is always the case on AMD cards. Transformers is also the fallback when Windows blocks faster-whisper's native library. Either way, text Whisper thinks is noise is dropped; Whisper otherwise "hears" words like "you" in silence.
 3. **Emotion from the words.** [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) scores the last ~6 s of transcript, after slang is rewritten as plain English.
 4. **Emotion from the voice.** [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from [Vox-Profile](https://arxiv.org/abs/2505.14648) is a WavLM-large model trained on MSP-Podcast, which is natural podcast speech rather than actors. It's a simplified, audio-only version of the top system in the INTERSPEECH 2025 speech emotion challenge. It was published for the authors' own code rather than as a standard transformers model, so `classify/vox_profile.py` rebuilds its small inference path and loads the weights directly. It runs on the same audio at the same time as Whisper. If it's still busy when the words are scored, the words-only result is shown first and then refined, so it never delays the first reaction.
 5. **Combining.** `final = (1 − w) · words + w · voice`, with `w = 0.25` by default. Calibration adds two small sets of per-emotion corrections in log space: one undoes a skew in the voice model for your voice and mic, and one adjusts the combined result.
@@ -540,6 +506,24 @@ The models were evaluated on [RAVDESS](https://zenodo.org/records/1188976): 1,44
 - **Calibration helps the voice most.** Fitting on 2 clips per emotion per speaker and testing on the rest takes the voice alone from 40% to 44%.
 - **Acted speech isn't streaming.** Actors exaggerate far more than people talking naturally, so these numbers say little about how often it's right on stream. That depends mostly on the words.
 
+### Speech-to-text accuracy
+
+The emotion from your words can only be as good as the transcript. The table shows the share of words each Whisper model got wrong (word error rate; lower is better) on four kinds of speech, measured on an RTX 5070 and a 16-thread Ryzen CPU:
+
+| Speech | `base.en`, CPU (CPU default) | `small.en`, CPU | `large-v3-turbo`, GPU (GPU default) |
+|---|---|---|---|
+| One person reading clearly (28 lines) | 2.0% | 1.0% | 1.0% |
+| Indian-accented English ([Svarah](https://huggingface.co/datasets/ai4bharat/Svarah), 1,000 clips, 117 speakers) | 12.7% | 9.9% | 7.4% |
+| Unscripted meetings, headset mic ([AMI](https://huggingface.co/datasets/edinburghcstr/ami), 504 clips) | 17.1% | 15.9% | 15.1% |
+| The 28 read lines, with 3 people talking 5 dB quieter in the background | 37.0% | 21.0% | 12.5% |
+| Meetings, one microphone on the table, people talking over each other (AMI, 634 clips) | 41.6% | 36.3% | 34.1% |
+| **Time per sentence** | **~0.4 s** | **~1.2 s** | **~0.1 s** |
+
+- **The GPU model is the most accurate and also the fastest.** Its advantage is biggest where it matters on stream: accents, and other voices in the background.
+- **On a CPU, `small.en` is a middle ground.** It makes about a fifth fewer mistakes than `base.en` with accents, and about 40% fewer with background voices, but each sentence takes about 0.8 s longer. To use it, set `asr.model: small.en` in `config.yaml`.
+- **Crosstalk is hard for every model.** With background voices as loud as yours, all of them get about half the words or more wrong, and some transcribe the other voices instead of yours. A headset or a directional mic close to your mouth helps more than any model.
+- **Not every mistake is a real mishearing.** Some come from writing styles ("70 %" against "70%") or from errors in the reference transcripts. These affect every model equally, so the comparison is fair, but the true error rates are a bit lower.
+
 ### Speed
 
 Measured from the end of a sentence to the new emotion being decided. On top of this come the overlay's transition (300 ms by default) and OBS.
@@ -547,9 +531,9 @@ Measured from the end of a sentence to the new emotion being decided. On top of 
 | | Pause that ends a sentence | Speech-to-text | Voice model | Total (median) |
 |---|---|---|---|---|
 | CPU (16-thread Ryzen) | 400 ms | ~300–400 ms | ~500–850 ms, in parallel | ~0.7–0.8 s first reaction, ~0.8–1.3 s with voice |
-| GPU (RTX 5070) | 400 ms | ~125 ms (`small.en`) | ~30–50 ms, in parallel | ~0.55 s |
+| GPU (RTX 5070) | 400 ms | ~110 ms (`large-v3-turbo`) | ~30–50 ms, in parallel | ~0.55 s |
 
-On the CPU the words-only result appears first, and the tone-of-voice result follows. On the GPU both arrive together. On a GPU the models use about 2–3 GB of video memory. The GPU uses the larger `small.en` Whisper model: on clear speech both sizes get nearly every word right, and `small.en` makes fewer mistakes on casual, fast or noisy speech. During long sentences, **Update while talking** reacts before you pause.
+On the CPU the words-only result appears first, and the tone-of-voice result follows. On the GPU both arrive together. On a GPU the models use about 3.5 GB of video memory. During long sentences, **Update while talking** reacts before you pause.
 
 ## Privacy
 
@@ -561,6 +545,7 @@ On the CPU the words-only result appears first, and the tone-of-voice result fol
 - **Calibration keeps only numbers.** `data/calibration.json` holds fitted corrections and accuracy figures, not your recordings or words. It's left out of backups.
 - **OBS control is off unless you turn it on.** Then the app connects only to the OBS address you enter, and sends only scene and filter changes. The OBS password is kept in `config.yaml` and never sent to the setup page.
 - **Your files stay local.** `config.yaml` and `data/` (images, triggers, calibration) are in the project folder and are excluded from git.
+- **Installing GPU support downloads from the vendor.** `run-gpu.bat` and `--extra gpu` get PyTorch from pytorch.org. `run-amd.bat` gets it from AMD (repo.radeon.com), and `--extra amd` from pytorch.org. Nothing about you is sent.
 
 ## Security
 
@@ -580,7 +565,7 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 
 ## Troubleshooting
 
-**Run the self-test first.** Run `run-cpu.bat --self-test` (or `run-gpu.bat --self-test`, or `uv run python -m emotion_overlay --self-test`). It loads every model and runs each once, and names the step that fails.
+**Run the self-test first.** On Windows, run `run-cpu.bat --self-test` (or the same with `run-gpu.bat` or `run-amd.bat`). Anywhere, you can run `uv run python -m emotion_overlay --self-test`, adding the `--extra` option you installed with after `uv run` (for example `uv run --extra cpu ...` on Linux). It loads every model and runs each once, and names the step that fails. The installation guides for [Windows](INSTALL-Windows.md#windows-problems) and [Linux](INSTALL-Linux.md#linux-problems) cover problems specific to each system.
 
 **"An Application Control policy has blocked this file" / Smart App Control.** Windows' Smart App Control blocks unsigned native libraries that don't have a good reputation yet, and its verdict on a file can change over time.
 - If it blocks faster-whisper, the app falls back to Whisper through PyTorch automatically (`asr.backend: auto`). That's slower on the CPU, but works.
@@ -588,18 +573,20 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 - `uv run pytest` can be blocked too; `uv run python -m pytest` works.
 
 **GPU not available.** The Processor card says why:
-- "PyTorch is CPU-only": use `run-gpu.bat`, or run `uv sync --extra gpu`.
-- "No NVIDIA GPU": the driver is missing or there's no NVIDIA card.
+- "PyTorch is CPU-only": use `run-gpu.bat` or `run-amd.bat`, or run `uv sync --extra gpu` (or `--extra amd` on Linux).
+- "No NVIDIA GPU" or "No AMD GPU supported by ROCm": the driver is missing or too old, or the card isn't supported. See the installation guide for your system.
 
-If you start the app by hand, use `uv run --extra gpu ...`. A plain `uv run` reinstalls the CPU build.
+If you start the app by hand, keep the `--extra` option you installed with on every `uv run`. Without it, uv swaps in a different build of PyTorch.
 
 **"The models are still loading" when switching processor.** Wait until the status says it's listening, then switch.
 
-**Setup page doesn't open, or "already running".** Only one copy can run at a time. Close the other console window, or open http://127.0.0.1:8765/setup in your browser. If port 8765 is taken by another program, set `server.port` in `config.yaml`, and use the new port in OBS too.
+**Setup page doesn't open, or "already running".** Only one copy can run at a time. Close the other console window (or terminal), or open http://127.0.0.1:8765/setup in your browser. If port 8765 is taken by another program, set `server.port` in `config.yaml`, and use the new port in OBS too.
 
 **"Your saved mic isn't connected".** Plug it in and click **Refresh list**, or pick another mic and click **Use this mic**.
 
 **It reacts to game audio or background noise.** Use a dedicated mic input rather than a desktop-audio device, raise the voice detection threshold, or run calibration so it can measure your background noise.
+
+**It mishears you when others are talking nearby.** Use a headset or a mic close to your mouth. A GPU helps a lot, because it runs a larger speech model. On a CPU, `asr.model: small.en` in `config.yaml` is more accurate than the default, at about 0.8 s more per sentence.
 
 **The image changes too often.** Turn on one of the Stability settings, for example "Sentences before switching" = 2 or "Minimum time on screen" = 3 s.
 
@@ -607,7 +594,7 @@ If you start the app by hand, use `uv run --extra gpu ...`. A plain `uv run` rei
 
 **OBS won't connect.** Check that OBS is running, that **Enable WebSocket server** is ticked in **Tools → WebSocket Server Settings**, and that the port and password match **Show Connect Info**. "OBS refused the connection" means the password is wrong.
 
-**The first start is slow.** It downloads about 1.8 GB of models once, plus about 1 GB for `small.en` the first time the GPU is used. Later starts load them from the cache.
+**The first start is slow.** It downloads about 1.8 GB of models once, plus about 1.6 GB for `large-v3-turbo` the first time the GPU is used. Later starts load them from the cache.
 
 ## Known limitations
 
@@ -616,13 +603,18 @@ If you start the app by hand, use `uv run --extra gpu ...`. A plain `uv run` rei
 - **Calibration is small.** 14 lines can only nudge the models, not retrain them, and the recommendations are only as good as how naturally you read the lines.
 - **No prebuilt installer.** It would need code signing to get past Smart App Control, so the app runs from source.
 - **Hotkeys are Windows only.**
+- **AMD GPU support is untested.** It has never been run on an actual AMD card. What has been checked: on Windows, `run-amd.bat` installs AMD's PyTorch build, and without an AMD card the app falls back to the CPU and passes its self-test; on Linux, the `amd` install resolves. If you have a Radeon card, please report whether it works.
+- **Speech-to-text struggles with crosstalk.** With other people talking at the same time as you, Whisper makes many more mistakes, especially the small CPU model (see [Speech-to-text accuracy](#speech-to-text-accuracy)).
 
 ## Project layout
 
 ```
-run-cpu.bat, run-gpu.bat   Windows launchers (CPU, and NVIDIA GPU in its own environment)
+run-cpu.bat, run-gpu.bat,  Windows launchers: CPU, NVIDIA GPU and AMD GPU (the GPU
+  run-amd.bat                ones each in their own environment)
+INSTALL-Windows.md,        Installation guides
+  INSTALL-Linux.md
 LICENSE                    MIT licence
-pyproject.toml, uv.lock    Dependencies (the "gpu" extra is the CUDA build of PyTorch)
+pyproject.toml, uv.lock    Dependencies (extras: "gpu" = PyTorch for NVIDIA, "amd" = for AMD on Linux)
 src/emotion_overlay/
   main.py                  Command line and startup
   pipeline.py              Worker threads: mic -> VAD -> speech-to-text + voice -> scores -> display
@@ -634,7 +626,7 @@ src/emotion_overlay/
   personalize.py           Recommended settings from your calibration lines
   slang.py, triggers.py    Slang table and word triggers
   images.py, fetch.py      Image store and validation; safe "add from link"
-  compute.py               CPU/GPU detection
+  compute.py               CPU/GPU detection (NVIDIA CUDA or AMD ROCm)
   hotkeys.py               Windows global hotkeys
   obs.py                   OBS remote control (obs-websocket v5)
   settings.py, config.py   Settings that can change live; the config file
@@ -652,7 +644,7 @@ Your own files, created when you use the app: `config.yaml` (settings) and `data
 - Voice activity detection: [Silero VAD](https://github.com/snakers4/silero-vad) (MIT)
 - Emotion from text: [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) by Jochen Hartmann
 - Emotion from voice: [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from Vox-Profile ([paper](https://arxiv.org/abs/2505.14648)), under the OpenRAIL licence on its model card
-- Evaluation data: [RAVDESS](https://zenodo.org/records/1188976), © Livingstone & Russo 2018, CC BY-NC-SA 4.0. Not included in this repository
+- Evaluation data, not included in this repository: [RAVDESS](https://zenodo.org/records/1188976), © Livingstone & Russo 2018, CC BY-NC-SA 4.0; [Svarah](https://huggingface.co/datasets/ai4bharat/Svarah) by AI4Bharat, CC BY 4.0; [AMI Meeting Corpus](https://huggingface.co/datasets/edinburghcstr/ami), CC BY 4.0
 - Built with [FastAPI](https://fastapi.tiangolo.com/), [PyTorch](https://pytorch.org/), [sounddevice](https://python-sounddevice.readthedocs.io/) and [Pillow](https://python-pillow.org/)
 
 ## License

@@ -29,11 +29,11 @@
 
     <section class="card">
       <h2>Processor</h2>
-      <p class="hint">Where the speech and emotion models run. An NVIDIA GPU makes each sentence much faster to process. Switching reloads the models in the background; the overlay keeps working meanwhile.</p>
+      <p class="hint">Where the speech and emotion models run. A GPU (NVIDIA, or AMD with ROCm) makes each sentence much faster to process. Switching reloads the models in the background; the overlay keeps working meanwhile.</p>
       <div class="row">
         <select id="compute" aria-label="Processor">
           <option value="auto">Automatic (GPU if available)</option>
-          <option value="cuda">GPU (NVIDIA)</option>
+          <option value="cuda">GPU</option>
           <option value="cpu">CPU</option>
           <option value="mixed" disabled>Mixed (set in config.yaml)</option>
         </select>
