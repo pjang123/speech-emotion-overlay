@@ -587,7 +587,7 @@ code {
 
 .trigger-form input[type="text"],
 .trigger-form select,
-.trigger-row input,
+.trigger-card input,
 label.inline input {
   min-width: 0;
   padding: 6px 8px;
@@ -609,28 +609,69 @@ label.inline input {
   width: 70px;
 }
 
+/* Triggers fill the width in columns, so a long list grows sideways before downwards. */
 .triggers {
   display: grid;
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 8px;
 }
 
-.trigger-row {
+.trigger-card {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
+  padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
+}
+
+.trigger-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }
 
 .trigger-phrases {
+  display: -webkit-box;
+  overflow: hidden;
+  font-weight: 600;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* long phrase lists: full text is in the tooltip */
 }
 
-.trigger-row button.secondary {
+.trigger-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trigger-controls label.inline input {
+  width: 62px;
+  padding: 3px 6px;
+}
+
+.trigger-controls button.secondary {
   padding: 3px 10px;
   font-size: 13px;
+}
+
+.trigger-controls button.icon {
+  margin-left: auto;
+}
+
+/* The trigger image library: one full-width box whose images wrap sideways. */
+#trigger-library .emotion-head {
+  align-items: flex-start;
+}
+
+#trigger-library .emotion-head p {
+  margin: 2px 0 0;
+}
+
+#trigger-library .thumb {
+  width: 80px;
 }
 
 select.tier {

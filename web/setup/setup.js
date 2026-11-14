@@ -419,16 +419,30 @@ function renderTriggers() {
     duration.addEventListener("change", () => updateTrigger(t.id, { duration_s: Number(duration.value) }));
     const remove = el("button", { className: "icon danger", title: "Delete trigger", textContent: "✕" });
     remove.addEventListener("click", () => deleteTrigger(t));
+    // A compact card: image on the left; the words, then the controls, on the right.
     return el(
       "div",
-      { className: "trigger-row" },
+      { className: "trigger-card" },
       imagePicker(t.image_id, (id) => updateTrigger(t.id, { image_id: id }), { compact: true }),
-      el("span", { className: "trigger-phrases", textContent: t.phrases.map((p) => `“${p}”`).join(", ") }),
-      el("label", { className: "inline", title: "Seconds to show the image" }, duration, " s"),
-      button("Test", () => testTrigger(t.id)),
-      remove,
+      el(
+        "div",
+        { className: "trigger-body" },
+        el("span", {
+          className: "trigger-phrases",
+          textContent: t.phrases.map((p) => `“${p}”`).join(", "),
+          title: t.phrases.join(", "),
+        }),
+        el(
+          "div",
+          { className: "trigger-controls" },
+          el("label", { className: "inline", title: "Seconds to show the image" }, duration, " s"),
+          button("Test", () => testTrigger(t.id)),
+          remove,
+        ),
+      ),
     );
   });
+  $("triggers-head").textContent = rows.length ? `Your triggers (${rows.length})` : "Your triggers";
   $("triggers").replaceChildren(
     ...(rows.length ? rows : [el("p", { className: "muted small", textContent: "No triggers yet." })]),
   );
@@ -479,7 +493,7 @@ async function testTrigger(id) {
   }
 }
 
-const GROUP_LABELS = { trigger: "Word triggers only" };
+const GROUP_LABELS = { trigger: "Trigger images" };
 
 function renderImages() {
   const cards = ui.imageGroups.map((emotion) => {
@@ -502,19 +516,27 @@ function renderImages() {
       if (url && url.trim()) addFromLink(emotion, url.trim());
     });
 
+    const isTrigger = emotion === "trigger";
     const thumbs = el("div", { className: "thumbs" }, ...mine.map(thumbnail));
     if (!mine.length) {
-      const hint = emotion === "trigger" ? "Images here are only shown by word triggers" : "No images";
+      const hint = isTrigger ? "No trigger images yet. Click Add or Link, or drop files here." : "No images";
       thumbs.append(el("p", { className: "muted small", textContent: hint }));
     }
 
     const card = el(
       "div",
-      { className: `emotion${emotion === "trigger" ? " trigger-group" : ""}` },
+      { className: `emotion${isTrigger ? " trigger-group" : ""}` },
       el(
         "div",
         { className: "emotion-head" },
-        el("h3", { textContent: GROUP_LABELS[emotion] ?? emotion }),
+        el(
+          "div",
+          {},
+          el("h3", { textContent: GROUP_LABELS[emotion] ?? emotion }),
+          ...(isTrigger
+            ? [el("p", { className: "muted small", textContent: "Only shown by word triggers and hotkeys, never for an emotion." })]
+            : []),
+        ),
         el("div", { className: "head-buttons" }, add, link),
       ),
       thumbs,
@@ -538,9 +560,10 @@ function renderImages() {
         .find((line) => line.startsWith("http"));
       if (url) addFromLink(emotion, url.trim());
     });
-    return card;
+    return [emotion, card];
   });
-  $("emotions").replaceChildren(...cards);
+  $("emotions").replaceChildren(...cards.filter(([e]) => e !== "trigger").map(([, card]) => card));
+  $("trigger-library").replaceChildren(...cards.filter(([e]) => e === "trigger").map(([, card]) => card));
 }
 
 async function addFromLink(emotion, url) {

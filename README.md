@@ -214,7 +214,7 @@ Combine with `&`: `http://127.0.0.1:8765/overlay?fit=cover&label=1`. The overlay
 <summary><strong>Images and word triggers</strong></summary>
 
 - **Images:** PNG, JPEG, WebP or GIF, up to 10 MB and 4096 × 4096 pixels each. Upload, paste a link (Tenor/Giphy pages work) or drag one in from another tab.
-  - Each image belongs to an emotion, or to the **trigger** group (used only by word triggers).
+  - Each image belongs to an emotion. Images for word triggers go in **Trigger images**, in the **Word triggers** card; they're never shown for an emotion.
   - **Tier:** **Any**, **Mild** or **Strong**. Strong shows at or above the Strong-tier threshold, Mild below. Without the needed tier, **Any** images are used, then whatever the emotion has.
   - **★ Default** is shown for emotions without images. Names are only for you; files are stored under random IDs.
 - **Word triggers:** one or more phrases, an image and a duration (0.5–60 s). Matching is whole-word and ignores case, punctuation and apostrophes ("G.G." matches "gg"). Stretched letters ("bruhhhh") and common slang spellings match too. Up to 50. **Test** shows one without saying it.
@@ -316,7 +316,7 @@ Global hotkeys work while another app (like a game) has focus. Set them up in th
 |---|---|
 | **Keys** | Click a hotkey's keys, then press new ones. Combinations need Ctrl, Alt or Win so they can't block typing. F1–F24, Pause and Scroll Lock also work alone (good for a Stream Deck or macro pad) |
 | **Hold an emotion** | Shows that emotion until you press the same keys again or a "Back to automatic" key |
-| **Show an image** | Any image, including **Word triggers only** ones, until pressed again or for a few seconds |
+| **Show an image** | Any image, including your **Trigger images**, until pressed again or for a few seconds |
 | **Fire a word trigger** | As if you'd said its phrase |
 | **Back to automatic** | Lets go of a held emotion or image |
 | **Test / Reset / Hotkeys on** | Try one without pressing it / restore the defaults / turn them all off or on |

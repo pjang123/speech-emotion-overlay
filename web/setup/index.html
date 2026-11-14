@@ -75,14 +75,16 @@
 
     <section class="card">
       <h2>Images</h2>
-      <p class="hint" id="image-hint">Add images per emotion: click "Add" or drop files on a box. GIFs work too, from a file, or from a link with "Link" (Tenor and Giphy page links included); you can also drag a GIF straight from another browser tab. Each GIF starts from its first frame whenever it appears. Click ★ to mark the default image, which is shown for any emotion with no images. The dropdown under each image sets its intensity: <strong>Mild</strong> and <strong>Strong</strong> images are picked by how confident the detection is, and <strong>Any</strong> works for both.</p>
+      <p class="hint" id="image-hint">Add images per emotion: click "Add" or drop files on a box. GIFs work too, from a file, or from a link with "Link" (Tenor and Giphy page links included); you can also drag a GIF straight from another browser tab. Each GIF starts from its first frame whenever it appears. Click ★ to mark the default image, which is shown for any emotion with no images. The dropdown under each image sets its intensity: <strong>Mild</strong> and <strong>Strong</strong> images are picked by how confident the detection is, and <strong>Any</strong> works for both. Images for word triggers are in the <strong>Word triggers</strong> card below.</p>
       <p id="image-msg" class="msg"></p>
       <div id="emotions" class="emotions"></div>
     </section>
 
     <section class="card">
       <h2>Word triggers</h2>
-      <p class="hint">Show a special image for a few seconds when you say a word or phrase, like "gg" or "let's go". Matching ignores capitals and only counts whole words, so "gg" won't fire on "eggs". Separate alternatives with commas. If a word doesn't fire, check how it's spelled in the Live panel's transcript. Put trigger images in <strong>Word triggers only</strong> above so they never appear for emotions.</p>
+      <p class="hint">Show a special image for a few seconds when you say a word or phrase, like "gg" or "let's go". Matching ignores capitals and only counts whole words, so "gg" won't fire on "eggs". Separate alternatives with commas. If a word doesn't fire, check how it's spelled in the Live panel's transcript.</p>
+      <div id="trigger-library"></div>
+      <h3 class="subhead">New trigger</h3>
       <div class="trigger-form">
         <input id="trigger-phrases" type="text" maxlength="400" placeholder="gg, good game" aria-label="Words or phrases">
         <div id="trigger-image" aria-label="Image to show"></div>
@@ -90,6 +92,7 @@
         <button id="trigger-add">Add trigger</button>
       </div>
       <p id="trigger-msg" class="msg"></p>
+      <h3 class="subhead" id="triggers-head">Your triggers</h3>
       <div id="triggers" class="triggers"></div>
     </section>
 
