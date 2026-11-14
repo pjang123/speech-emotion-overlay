@@ -861,7 +861,7 @@ async function saveCalibration(applyPaths) {
 const formatValue = (value) =>
   typeof value === "boolean" ? (value ? "on" : "off") : Number.isInteger(value) ? `${value}` : value.toFixed(2);
 
-function profileLines(profile) {
+function profileLines(profile, what = "lines") {
   if (!profile) return [];
   const lines = [];
   if (profile.pauses_measured !== undefined) {
@@ -880,7 +880,7 @@ function profileLines(profile) {
   const weights = profile.voice_weight_accuracy;
   if (weights) {
     const best = Object.entries(weights).sort((a, b) => b[1] - a[1])[0];
-    lines.push(`Tone of voice: your lines scored best at voice weight ${best[0]} (${percent(best[1])} correct).`);
+    lines.push(`Tone of voice: your ${what} scored best at voice weight ${best[0]} (${percent(best[1])} correct).`);
   }
   return lines.map((text) => el("li", { textContent: text }));
 }
@@ -958,17 +958,35 @@ function renderCalibration(msg) {
     if (msg.error) parts.push(el("p", { className: "msg error", textContent: msg.error }));
     let list = null;
     if (msg.result) {
-      parts.push(
-        el("p", { textContent: `Recorded ${msg.result.samples} lines. How often each part picked the right emotion:` }),
-        accuracyTable(msg.result.accuracy),
-        el("p", {
-          className: "muted small",
-          textContent:
-            "* Each line is scored by a calibration fitted on the other lines only, so this isn't inflated. " +
-            "It already uses the voice weight recommended below. With so few lines, treat these numbers as rough.",
-        }),
-      );
-      const profile = profileLines(msg.result.profile);
+      const r = msg.result;
+      const long = r.source === "long";
+      const measured = r.accuracy && r.accuracy.after !== undefined && r.accuracy.after !== null;
+      if (long && !measured) {
+        parts.push(
+          el("p", {
+            textContent:
+              `From a long recording (${r.sentences} sentences): the tone-of-voice model has been corrected for how you ` +
+              "sound while playing. Check sentences in the long recording card to also tune the voice weight and see accuracy.",
+          }),
+        );
+      } else {
+        parts.push(
+          el("p", {
+            textContent: long
+              ? `From a long recording: you checked ${r.samples} of ${r.sentences} sentences. How often each part picked the right emotion on those:`
+              : `Recorded ${r.samples} lines. How often each part picked the right emotion:`,
+          }),
+          accuracyTable(r.accuracy),
+          el("p", {
+            className: "muted small",
+            textContent: long
+              ? "* Each sentence is scored by a calibration fitted without it, so this isn't inflated. It already uses the voice weight recommended below."
+              : "* Each line is scored by a calibration fitted on the other lines only, so this isn't inflated. " +
+                "It already uses the voice weight recommended below. With so few lines, treat these numbers as rough.",
+          }),
+        );
+      }
+      const profile = profileLines(msg.result.profile, long ? "checked sentences" : "lines");
       if (profile.length) {
         parts.push(el("h3", { className: "subhead", textContent: "How you speak" }), el("ul", {}, ...profile));
       }
@@ -1002,9 +1020,15 @@ function renderCalibration(msg) {
   }
 
   const saved = msg.saved;
+  const from = (c) =>
+    c.source === "long"
+      ? `a long recording (${c.sentences} sentences${c.samples ? `, ${c.samples} checked` : ""})`
+      : `${c.samples} lines`;
   const summary = saved
-    ? `Calibrated ${new Date(saved.created).toLocaleString()} from ${saved.samples} lines ` +
-      `(combined accuracy ${percent(saved.accuracy.before)} → ${percent(saved.accuracy.after)}).`
+    ? `Calibrated ${new Date(saved.created).toLocaleString()} from ${from(saved)}` +
+      (saved.accuracy?.after !== undefined && saved.accuracy?.after !== null
+        ? ` (combined accuracy ${percent(saved.accuracy.before)} → ${percent(saved.accuracy.after)}).`
+        : ".")
     : "Not calibrated yet. The app works without it, but calibration helps the voice model fit your mic.";
   const applied = (msg.applied ?? []).map((rec) =>
     el("li", { textContent: `${rec.label}: ${formatValue(rec.current)} → ${formatValue(rec.value)}` }),
@@ -1023,6 +1047,440 @@ function renderCalibration(msg) {
         : []),
     ),
   );
+}
+
+// --- long-form calibration ----------------------------------------------------
+
+const lf = {
+  msg: null, // last "longform" message
+  sentences: new Map(), // id -> sentence (review)
+  filter: "todo",
+  shown: 100, // rows rendered; "Show more" adds to it
+  upload: null, // { name, loaded, total } while the browser is uploading
+  player: new Audio(),
+  timer: null,
+};
+
+const PAGE = 100;
+const NOT_ME = "not_me";
+const LABEL_TEXT = { not_me: "Not me" };
+const labelText = (label) => LABEL_TEXT[label] ?? label[0].toUpperCase() + label.slice(1);
+
+function clock(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(h ? 2 : 1, "0");
+  return `${h ? `${h}:` : ""}${mm}:${String(s % 60).padStart(2, "0")}`;
+}
+
+const megabytes = (bytes) => `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+
+function progressBar(fraction) {
+  const fill = el("div", { className: "fill" });
+  fill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+  return el("div", { className: "bar" }, fill);
+}
+
+async function longformAction(path, body) {
+  try {
+    const msg = body === undefined ? await api(path, { method: "POST" }) : await sendJson(path, "POST", body);
+    flash("longform-msg", "");
+    return msg;
+  } catch (err) {
+    flash("longform-msg", err.message, true);
+    return null;
+  }
+}
+
+function uploadRecording(file) {
+  // XHR rather than fetch: it reports upload progress, and multi-GB files are common.
+  lf.upload = { name: file.name, loaded: 0, total: file.size };
+  renderLongform(lf.msg);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/longform/upload");
+  xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name));
+  xhr.upload.onprogress = (e) => {
+    lf.upload = { ...lf.upload, loaded: e.loaded };
+    renderLongform(lf.msg);
+  };
+  xhr.onloadend = () => {
+    lf.upload = null;
+    if (xhr.status >= 200 && xhr.status < 300) {
+      flash("longform-msg", "");
+      renderLongform(JSON.parse(xhr.responseText));
+    } else {
+      let detail = xhr.statusText || "upload failed";
+      try {
+        detail = JSON.parse(xhr.responseText).detail ?? detail;
+      } catch {
+        // not JSON
+      }
+      flash("longform-msg", typeof detail === "string" ? detail : "Upload failed.", true);
+      renderLongform(lf.msg);
+    }
+  };
+  xhr.send(file);
+}
+
+function longformStart() {
+  const url = el("input", { type: "url", placeholder: "https://…/my-stream.mp4" });
+  const useLink = () => url.value.trim() && longformAction("/api/longform/link", { url: url.value.trim() });
+  url.addEventListener("keydown", (e) => e.key === "Enter" && useLink());
+  return el(
+    "div",
+    { className: "lf-options" },
+    el(
+      "div",
+      { className: "lf-option" },
+      el("strong", { textContent: "Record while you play" }),
+      el("p", {
+        textContent:
+          "Play or stream as usual for 15–30 minutes, then stop. The overlay keeps working the whole time.",
+      }),
+      el("div", { className: "row" }, button("Start recording", () => longformAction("/api/longform/record"), false)),
+    ),
+    el(
+      "div",
+      { className: "lf-option" },
+      el("strong", { textContent: "Use a video or audio file" }),
+      el("p", {
+        textContent:
+          "A past stream or recording (MP4, MKV, MOV, WebM, MP3, WAV…, up to 8 GB). Best if your mic is on its own audio track.",
+      }),
+      el("div", { className: "row" }, button("Choose a file…", () => $("longform-file").click())),
+    ),
+    el(
+      "div",
+      { className: "lf-option" },
+      el("strong", { textContent: "Use a link" }),
+      el("p", {
+        textContent:
+          "A direct link to a video or audio file (one that downloads the file when opened). YouTube and Twitch pages don't work: download the file and choose it instead.",
+      }),
+      url,
+      el("div", { className: "row" }, button("Use link", useLink)),
+    ),
+  );
+}
+
+function recentList(session) {
+  const recent = session?.recent ?? [];
+  if (!recent.length) return [];
+  return [
+    el(
+      "ul",
+      { className: "lf-recent" },
+      ...recent.map((s) => el("li", { textContent: `${clock(s.start)}  ${s.transcript || "(no words)"}` })),
+    ),
+  ];
+}
+
+function statusBlock(lines, fraction, buttons) {
+  return el(
+    "div",
+    { className: "lf-status" },
+    ...lines.map((text) => el("p", { textContent: text, style: "margin:0" })),
+    ...(fraction === null ? [] : [progressBar(fraction)]),
+    el("div", { className: "row" }, ...buttons),
+  );
+}
+
+const cancelButton = (text = "Cancel") =>
+  button(text, async () => {
+    const msg = await longformAction("/api/longform/cancel");
+    if (msg) renderLongform(msg);
+  });
+
+function renderLongform(msg) {
+  if (msg) {
+    if (msg.full && msg.session?.items) {
+      lf.sentences = new Map(msg.session.items.map((s) => [s.id, s]));
+      lf.shown = PAGE;
+    }
+    if (msg.state !== "review" && msg.state !== lf.msg?.state) lf.sentences = new Map();
+    lf.msg = msg;
+  }
+  msg = lf.msg;
+  const box = $("longform");
+  clearInterval(lf.timer);
+  if (!msg) return;
+
+  if (lf.upload) {
+    const { name, loaded, total } = lf.upload;
+    box.replaceChildren(
+      statusBlock([`Uploading ${name}: ${megabytes(loaded)} of ${megabytes(total)}`], total ? loaded / total : 0, []),
+    );
+    return;
+  }
+  const session = msg.session;
+  const progress = msg.progress;
+  switch (msg.state) {
+    case "recording": {
+      const started = Date.now() - (msg.elapsed_s ?? 0) * 1000;
+      const line = el("p", { style: "margin:0" });
+      const tick = () => {
+        line.textContent = `● Recording · ${clock((Date.now() - started) / 1000)} · ${session?.sentences ?? 0} sentences so far`;
+      };
+      tick();
+      lf.timer = setInterval(tick, 1000);
+      box.replaceChildren(
+        el(
+          "div",
+          { className: "lf-status" },
+          line,
+          el("p", {
+            className: "muted small",
+            style: "margin:0",
+            textContent: "Talk and play as you normally would. 15–30 minutes gives a good picture.",
+          }),
+          ...recentList(session),
+          el(
+            "div",
+            { className: "row" },
+            button("Stop and review", async () => {
+              const m = await longformAction("/api/longform/stop");
+              if (m) renderLongform(m);
+            }, false),
+            cancelButton(),
+          ),
+        ),
+      );
+      return;
+    }
+    case "uploading":
+      box.replaceChildren(statusBlock([`Receiving ${msg.file ?? "the file"}…`], null, [cancelButton()]));
+      return;
+    case "downloading": {
+      const done = progress?.done ?? 0;
+      const total = progress?.total;
+      const text = total ? `${megabytes(done)} of ${megabytes(total)}` : megabytes(done);
+      box.replaceChildren(statusBlock([`Downloading: ${text}`], total ? done / total : null, [cancelButton()]));
+      return;
+    }
+    case "ready": {
+      const tracks = msg.tracks ?? [];
+      const pick = el(
+        "select",
+        {},
+        ...tracks.map((t) =>
+          el("option", {
+            value: String(t.index),
+            textContent: `${t.title}${t.channels ? ` (${t.channels === 1 ? "mono" : `${t.channels} channels`})` : ""}`,
+          }),
+        ),
+      );
+      const length = tracks[0]?.duration_s ? ` · ${clock(tracks[0].duration_s)} long` : "";
+      box.replaceChildren(
+        el(
+          "div",
+          { className: "lf-status" },
+          el("p", { style: "margin:0", textContent: `${msg.file}${length}` }),
+          ...(tracks.length > 1
+            ? [
+                el("p", {
+                  className: "muted small",
+                  style: "margin:0",
+                  textContent:
+                    "This file has several audio tracks. Pick the one with only your microphone if there is one: friends and game sound make the calibration less accurate.",
+                }),
+                pick,
+              ]
+            : []),
+          el(
+            "div",
+            { className: "row" },
+            button("Analyse", async () => {
+              const m = await longformAction("/api/longform/analyse", { track: Number(pick.value || 0) });
+              if (m) renderLongform(m);
+            }, false),
+            cancelButton(),
+          ),
+        ),
+      );
+      return;
+    }
+    case "analysing": {
+      const done = progress?.done ?? 0;
+      const total = progress?.total;
+      const lines = [
+        `Analysing: ${clock(done)}${total ? ` of ${clock(total)}` : ""} · ${session?.sentences ?? 0} sentences found`,
+      ];
+      box.replaceChildren(
+        statusBlock(lines, total ? done / total : null, [cancelButton()]),
+        ...recentList(session),
+      );
+      return;
+    }
+    case "review":
+      renderReview(box, msg);
+      return;
+    case "error":
+      box.replaceChildren(
+        el("p", { className: "msg error", textContent: msg.error ?? "Something went wrong." }),
+        el("div", { className: "row" }, cancelButton("Back")),
+      );
+      return;
+    default:
+      box.replaceChildren(longformStart());
+  }
+}
+
+function reviewCounts() {
+  let reviewed = 0;
+  let notMe = 0;
+  for (const s of lf.sentences.values()) {
+    if (s.label === NOT_ME) notMe += 1;
+    else if (s.label) reviewed += 1;
+  }
+  return { reviewed, notMe };
+}
+
+function countText(min) {
+  const { reviewed, notMe } = reviewCounts();
+  const extra = notMe ? `, ${notMe} marked “not me”` : "";
+  const goal =
+    reviewed < min
+      ? ` Check at least ${min} to also tune the voice weight and measure accuracy (30+ is better).`
+      : reviewed < 30
+        ? " More checked sentences make it more reliable."
+        : "";
+  return `Checked ${reviewed} of ${lf.sentences.size}${extra}.${goal}`;
+}
+
+function sentenceRow(s) {
+  const chips = [...ui.emotions, NOT_ME].map((label) => {
+    const chip = el("button", {
+      className: `chip${label === NOT_ME ? " not-me" : ""}${label === s.label ? " on" : ""}${label === s.guess && !s.label ? " guess" : ""}`,
+      textContent: labelText(label),
+      title: label === s.guess ? "The app's guess" : "",
+    });
+    chip.dataset.label = label;
+    return chip;
+  });
+  const play = el("button", { className: "icon", textContent: "▶", title: "Play this sentence" });
+  play.dataset.play = "1";
+  const row = el(
+    "div",
+    { className: `lf-row${s.label ? " done" : ""}` },
+    play,
+    el("span", { className: "lf-time mono", textContent: clock(s.start) }),
+    el("span", { className: "lf-text", textContent: s.transcript || "(no words heard)" }),
+    el("div", { className: "lf-chips" }, ...chips),
+  );
+  row.dataset.id = String(s.id);
+  return row;
+}
+
+function visibleSentences() {
+  const all = [...lf.sentences.values()];
+  if (lf.filter === "todo") return all.filter((s) => !s.label);
+  if (lf.filter === "emotional") return all.filter((s) => s.guess && s.guess !== "neutral");
+  return all;
+}
+
+async function labelSentence(row, label) {
+  const s = lf.sentences.get(Number(row.dataset.id));
+  const next = s.label === label ? null : label; // clicking the chosen one again clears it
+  try {
+    await sendJson(`/api/longform/sentences/${s.id}`, "PUT", { label: next });
+  } catch (err) {
+    flash("longform-msg", err.message, true);
+    return;
+  }
+  s.label = next;
+  row.replaceWith(sentenceRow(s));
+  $("lf-count").textContent = countText(lf.msg.session.min_reviewed);
+}
+
+function renderReview(box, msg) {
+  const session = msg.session;
+  const parts = [
+    el("p", {
+      textContent: `Found ${session.sentences} sentences in ${session.name}${session.truncated ? " (stopped at the limit)" : ""}.`,
+    }),
+  ];
+  if (session.auto?.notes?.length) {
+    parts.push(
+      el("p", { style: "margin:0 0 4px", textContent: "Fixed automatically:" }),
+      el("ul", { className: "lf-notes" }, ...session.auto.notes.map((t) => el("li", { textContent: t }))),
+    );
+  } else if (session.auto) {
+    parts.push(el("p", { className: "muted", textContent: "The tone-of-voice model wasn't skewed for you; nothing needed fixing automatically." }));
+  }
+  parts.push(
+    el("p", {
+      className: "hint",
+      textContent:
+        "Now check the app's guesses (dashed outline). Click the emotion you really meant, or “Not me” for friends on voice chat, game sound or music. Click again to undo. ▶ plays the sentence. You don't have to check them all.",
+    }),
+  );
+
+  const filter = select(
+    [
+      ["todo", "Not checked yet"],
+      ["emotional", "Guessed as emotional"],
+      ["all", "All sentences"],
+    ],
+    lf.filter,
+    (value) => {
+      lf.filter = value;
+      lf.shown = PAGE;
+      renderLongform();
+    },
+  );
+  filter.style.flex = "0 1 220px";
+  parts.push(
+    el(
+      "div",
+      { className: "lf-toolbar" },
+      el("span", { className: "lf-count", id: "lf-count", textContent: countText(session.min_reviewed) }),
+      filter,
+      button("Calibrate", calibrateFromRecording, false),
+      cancelButton("Discard"),
+    ),
+  );
+
+  const rows = visibleSentences();
+  const list = el("div", { className: "lf-list" }, ...rows.slice(0, lf.shown).map(sentenceRow));
+  list.addEventListener("click", (e) => {
+    const target = e.target.closest("button");
+    const row = target?.closest(".lf-row");
+    if (!row) return;
+    if (target.dataset.play) {
+      lf.player.pause();
+      lf.player.src = `/api/longform/sentences/${row.dataset.id}/audio`;
+      lf.player.play().catch(() => flash("longform-msg", "Couldn't play that sentence.", true));
+    } else if (target.dataset.label) {
+      labelSentence(row, target.dataset.label);
+    }
+  });
+  parts.push(list);
+  if (!rows.length) parts.push(el("p", { className: "muted", textContent: "Nothing to show here." }));
+  if (rows.length > lf.shown) {
+    parts.push(
+      el(
+        "div",
+        { className: "row", style: "margin-top:8px" },
+        button(`Show more (${rows.length - lf.shown} left)`, () => {
+          lf.shown += PAGE;
+          renderLongform();
+        }),
+      ),
+    );
+  }
+  box.replaceChildren(...parts);
+}
+
+async function calibrateFromRecording() {
+  const msg = await longformAction("/api/longform/calibrate");
+  if (!msg) return;
+  renderCalibration(msg);
+  flash("longform-msg", "Done. Your result is in the Calibration card above: check it and save.");
+  $("calibration").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function loadLongform() {
+  renderLongform(await api("/api/longform"));
 }
 
 // --- backup -------------------------------------------------------------------
@@ -1449,6 +1907,11 @@ async function init() {
   $("settings-reset").addEventListener("click", resetSettings);
   $("import-btn").addEventListener("click", () => $("import-file").click());
   $("import-file").addEventListener("change", importSetup);
+  $("longform-file").addEventListener("change", () => {
+    const file = $("longform-file").files[0];
+    $("longform-file").value = ""; // choosing the same file again still fires "change"
+    if (file) uploadRecording(file);
+  });
 
   $("hotkey-add").addEventListener("click", addHotkey);
   $("hotkeys-reset").addEventListener("click", resetHotkeys);
@@ -1462,7 +1925,9 @@ async function init() {
   const groups = await api("/api/emotions");
   ui.emotions = groups.emotions;
   ui.imageGroups = groups.image_groups ?? groups.emotions;
-  await Promise.all([loadImages(), loadDevices(), loadSettings(), loadManual(), loadCompute(), loadObs()]);
+  await Promise.all([
+    loadImages(), loadDevices(), loadSettings(), loadManual(), loadCompute(), loadObs(), loadLongform(),
+  ]);
 
   connect("/ws?debug=1", {
     onOpen: () => setPill("conn", "connected", "ok"),
@@ -1473,6 +1938,7 @@ async function init() {
       else if (msg.type === "vad") renderSpeaking(msg.speaking);
       else if (msg.type === "debug") renderDebug(msg);
       else if (msg.type === "calibration") renderCalibration(msg);
+      else if (msg.type === "longform") renderLongform(msg);
       else if (msg.type === "obs") renderObsStatus(msg);
     },
   });

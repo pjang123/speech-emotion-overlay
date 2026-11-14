@@ -16,6 +16,7 @@ dependencies = [
     "pillow>=10.3",
     "sounddevice>=0.4.7",
     "faster-whisper>=1.1",
+    "av>=11",  # reads video/audio files for long-form calibration (also used by faster-whisper)
     "silero-vad>=5.1",
     "transformers>=4.44",
     "torch>=2.3",

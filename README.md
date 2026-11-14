@@ -1,165 +1,174 @@
 # Emotion Overlay
 
-Emotion Overlay listens to your microphone, works out the emotion in what you're saying, and shows an image you picked for that emotion. It's built for streamers: add one URL to OBS as a Browser Source, and your on-screen image reacts to you, with no webcam and no hotkeys needed.
+**Your stream picture reacts to how you sound.** Pick an image for each mood. While you talk, the app works out the emotion in your voice and words, and shows the matching image in OBS. No webcam, no hotkeys needed.
 
-Everything runs on your own PC. Your audio never leaves it.
+> [!NOTE]
+> Everything runs on your own PC. Your audio never leaves it.
 
-- Recognises **7 emotions**: anger, disgust, fear, joy, neutral, sadness and surprise.
-- Reads both **what you say** (speech-to-text, then a text emotion model) and **how you say it** (a tone-of-voice model), then combines them.
-- Reacts in about **0.55 s** after you stop talking on an NVIDIA GPU, or about **0.8 s** on a CPU. AMD Radeon GPUs are supported too, but **AMD support hasn't been tested on a real AMD card yet**. During long sentences it can change before you pause.
-- Runs on **Windows** and **Linux**: see the [Windows](INSTALL-Windows.md) and [Linux](INSTALL-Linux.md) installation guides.
-- Your own images and GIFs, effects, word triggers ("gg", "bruh"), slang, hotkeys, OBS scene and filter switching, live settings and per-voice calibration, all set up in a local web page.
+| | |
+|---|---|
+| **Emotions** | anger, disgust, fear, joy, neutral, sadness, surprise |
+| **Listens to** | what you say (speech-to-text + a text emotion model) *and* how you say it (a tone-of-voice model) |
+| **Speed** | about 0.55 s after you stop talking on an NVIDIA GPU, about 0.8 s on a CPU. Long sentences can update before you pause |
+| **Runs on** | Windows and Linux ([Windows guide](INSTALL-Windows.md), [Linux guide](INSTALL-Linux.md)). AMD Radeon GPUs are supported but **not yet tested on a real AMD card** |
+| **Extras** | your own images and GIFs, effects, word triggers ("gg", "bruh"), slang, hotkeys, OBS scene and filter switching, calibration to your voice |
 
-## Contents
+**New here?** Start with the [Beginner's guide](#beginners-guide). Everything after it is reference you can dip into when you need it.
 
-- [Beginner's guide](#beginners-guide)
-- [Features](#features)
-- [Requirements](#requirements)
-- [Install and start](#install-and-start)
-- [Quick start](#quick-start)
-- [Add the overlay to OBS](#add-the-overlay-to-obs)
-- [The setup page](#the-setup-page)
-- [Hotkeys and Stream Deck](#hotkeys-and-stream-deck)
-- [OBS scenes and filters](#obs-scenes-and-filters)
-- [Configuration file](#configuration-file)
-- [Command-line options](#command-line-options)
-- [How it works](#how-it-works)
-- [Accuracy and speed](#accuracy-and-speed) (emotion, speech-to-text, speed)
-- [Privacy](#privacy)
-- [Security](#security)
-- [Troubleshooting](#troubleshooting)
-- [Known limitations](#known-limitations)
-- [Project layout](#project-layout)
-- [Credits](#credits)
-- [License](#license)
+<details>
+<summary><strong>Contents</strong></summary>
+
+- **Getting started**
+  - [Beginner's guide](#beginners-guide)
+  - [Make it work better for you](#make-it-work-better-for-you)
+  - [Quick fixes](#quick-fixes)
+- **Reference**
+  - [Features](#features) · [Requirements](#requirements) · [Install from the command line](#install-from-the-command-line)
+  - [Add the overlay to OBS](#add-the-overlay-to-obs) · [The setup page](#the-setup-page)
+  - [Calibration](#calibration) (quick and long-recording)
+  - [Hotkeys and Stream Deck](#hotkeys-and-stream-deck) · [OBS scenes and filters](#obs-scenes-and-filters)
+  - [Configuration file](#configuration-file) · [Command-line options](#command-line-options)
+  - [How it works](#how-it-works) · [Accuracy and speed](#accuracy-and-speed)
+  - [Privacy](#privacy) · [Security](#security)
+  - [Troubleshooting](#troubleshooting) · [Known limitations](#known-limitations)
+  - [Project layout](#project-layout) · [Credits](#credits) · [License](#license)
+
+</details>
+
+---
 
 ## Beginner's guide
 
-New to this kind of thing? This part walks you through everything with no technical knowledge needed. It's written for Windows 10 and 11. On Linux, follow the [Linux installation guide](INSTALL-Linux.md) instead of Steps 1 and 2, then continue here from Step 3. The rest of this page goes into more detail, but you don't need to read it to get started.
+No technical knowledge needed. This is written for Windows 10 and 11. On Linux, follow the [Linux installation guide](INSTALL-Linux.md) instead of Steps 1 and 2, then carry on here from Step 3.
 
-### What it does, in one sentence
+**You'll need:**
 
-You pick a picture for each mood (happy, sad, angry and so on), and while you talk, the app works out how you sound and shows the matching picture on your stream.
-
-### Before you start
-
-You'll need:
-
-- A Windows PC.
-- A microphone.
-- About 3.5 GB of free disk space (about 7 GB to use an NVIDIA graphics card, 10 GB or more for an AMD one).
-- An internet connection for the first start only (the app downloads its "brain" once, about 2 GB).
-- [OBS Studio](https://obsproject.com/) if you want the pictures on your stream. You can also just watch them in your web browser.
-- Some pictures or GIFs of yourself, your character or anything you like, one or more for each mood.
+- A Windows PC and a microphone.
+- About **3.5 GB** of free disk space (about 7 GB to use an NVIDIA graphics card, 10 GB or more for an AMD one).
+- Internet for the **first start only**: the app downloads its models once (about 2 GB).
+- [OBS Studio](https://obsproject.com/) to show the pictures on stream. A browser tab works too.
+- A few pictures or GIFs: one or more for each mood.
 
 ### Step 1: Download the app
 
 1. At the top of this GitHub page, click the green **Code** button, then **Download ZIP**.
-2. Find the downloaded file (usually in your **Downloads** folder), right-click it and choose **Extract All…**, then click **Extract**.
-3. You now have a normal folder. Put it somewhere you'll find again, like your Desktop or Documents.
+2. Right-click the downloaded file (usually in **Downloads**), choose **Extract All…**, then **Extract**.
+3. Move the new folder somewhere you'll find again, like your Desktop.
 
 ### Step 2: Start it
 
-1. Open the folder and double-click **`run-cpu.bat`**. If you have a gaming graphics card, you can use **`run-gpu.bat`** (NVIDIA) or **`run-amd.bat`** (AMD Radeon RX 7000 or 9000 series; not yet tested on a real AMD card) instead. They react faster and understand speech better, but their first start downloads several GB more. The [Windows installation guide](INSTALL-Windows.md) helps you choose.
-2. If Windows shows a blue "Windows protected your PC" box, click **More info**, then **Run anyway**.
-3. A black window opens with text scrolling by. **The very first time, this takes several minutes** while the app installs what it needs. Later starts take a few seconds.
-4. When the black window shows a line like `Setup page: http://127.0.0.1:8765/setup`, go on to Step 3.
+> [!TIP]
+> Got a gaming graphics card? In step 1, use **`run-gpu.bat`** (NVIDIA) or **`run-amd.bat`** (AMD Radeon RX 7000/9000, not yet tested on a real card) instead. It reacts faster and understands speech better, but the first start downloads several GB more. The [Windows installation guide](INSTALL-Windows.md) helps you choose.
 
-Keep the black window open the whole time you use the app. Closing it turns the app off.
+1. Open the folder and double-click **`run-cpu.bat`**.
+2. If a blue "Windows protected your PC" box appears, click **More info**, then **Run anyway**.
+3. A black window opens with text scrolling by. **The very first start takes several minutes.** Later starts take seconds.
+4. When it shows `Setup page: http://127.0.0.1:8765/setup`, go on to Step 3.
+
+> [!IMPORTANT]
+> Keep the black window open while you use the app. Closing it turns the app off.
 
 ### Step 3: Open the setup page
 
-Open your web browser (Chrome, Edge, Firefox…), type **`127.0.0.1:8765/setup`** in the address bar and press Enter. This page is where you control everything. It only exists on your own PC. Nobody else can see it.
+In your web browser, go to **`127.0.0.1:8765/setup`**. This page controls everything. It only exists on your PC.
 
-The first time, the app is still downloading its speech and emotion models in the background. The bar at the top of the page says **Loading…** until it's done, which can take a while on a slow connection. You can already add your pictures (Step 5) while you wait.
+The first time, the bar at the top says **Loading…** while the models download. You can already add pictures (Step 5) meanwhile.
 
 ### Step 4: Choose your microphone
 
-In the **Microphone** box, pick the mic you talk into from the list and click **Use this mic**. Say something. In the **Live** box, the grey dot should turn on and say **Speaking**, and a moment later your words appear under **Last transcript**.
+In the **Microphone** box, pick your mic and click **Use this mic**. Say something: in the **Live** box the dot should light up with **Speaking**, and your words appear under **Last transcript**.
 
 ### Step 5: Add your pictures
 
-In the **Images** box there's a square for each mood.
+The **Images** box has a square for each mood.
 
-1. Click **Add** on a square and choose picture files from your PC. You can also drag files onto a square, or click **Link** and paste a GIF link from a site like Giphy or Tenor.
-2. Add at least one picture to **Neutral**: that's your "normal" face, shown when you're calm or quiet.
-3. Click the ★ star under your favourite picture to make it the **default**. It's shown for any mood you haven't given a picture yet.
+1. Click **Add** on a square and pick files. You can also drag files onto it, or click **Link** and paste a GIF link (Giphy, Tenor…).
+2. Give **Neutral** at least one picture. That's your "normal" face, shown when you're calm or quiet.
+3. Click the **★** under your favourite picture to make it the **default**, used for any mood without its own picture.
 
-You don't have to fill every mood. Start with neutral and joy, and add more whenever you like.
+Start with neutral and joy; add more whenever you like.
 
 ### Step 6: Put it on your stream (OBS)
 
-1. In OBS, under **Sources**, click **+** and choose **Browser**. Give it a name and click **OK**.
-2. In the **URL** box, type `http://127.0.0.1:8765/overlay`.
-3. Set **Width** and **Height** to the size of your pictures (for example 800 and 800), then click **OK**.
-4. Drag and resize it on your scene like any other source.
+1. In OBS, under **Sources**, click **+** → **Browser**, name it, click **OK**.
+2. URL: `http://127.0.0.1:8765/overlay`
+3. Set **Width** and **Height** to your pictures' size (for example 800 × 800), click **OK**.
+4. Move and resize it like any other source.
 
-The background is see-through, so only your picture shows. If you don't use OBS, open `127.0.0.1:8765/overlay` in a browser tab to watch it.
+The background is see-through. Without OBS, open `127.0.0.1:8765/overlay` in a browser tab.
 
 ### Step 7: Talk!
 
-Just talk normally. About a second after you finish a sentence, the picture changes to match your mood. Say "this is amazing, I love it!" and you should see your joy picture. The **Live** box on the setup page shows what it heard and how sure it was.
+About a second after you finish a sentence, the picture changes. Try "this is amazing, I love it!" for your joy picture. The **Live** box shows what was heard and how sure the app was.
 
-### Optional extras
+**Next time:** double-click the same launcher and wait for the setup page line. Everything is remembered, and OBS reconnects on its own.
 
-None of these are needed, but they make it better:
+## Make it work better for you
 
-- **Calibration (recommended, about 2 minutes):** in the **Calibration** box, click **Start** and read the 14 short lines out loud in the mood shown. The app learns how *your* voice sounds and suggests settings for you. Tick the ones you want and save.
-- **Word triggers:** show a special picture for a few seconds when you say a certain word, like "gg" or "let's go". In the **Word triggers** box, type the word, choose a picture and click **Add trigger**.
-- **Hotkeys:** keyboard shortcuts that work even while you're in a game. By default, **Ctrl+Alt+Shift+1** to **7** lock a mood on screen and **Ctrl+Alt+Shift+0** goes back to normal. In the **Hotkeys** box you can change the keys (click them, then press new ones) and make any key show any picture.
-- **Settings:** change how pictures fade in, how quickly the app reacts, and more. Each setting has a short explanation, and **Reset to defaults** undoes everything.
-- **Backup:** **Export setup** saves all your pictures and settings in one file, so you can move them to another PC or keep a copy.
+All optional.
 
-### Using it again next time
+| | What it does | Where |
+|---|---|---|
+| **Calibration** (2 min, recommended) | Read 14 short lines in the mood shown. The app learns your voice and mic and suggests settings | **Calibration** box → **Start** |
+| **Long-recording calibration** | Tunes the app to how you *really* sound while playing, from a live session or a past stream's video | **Calibrate from a long recording** box ([details](#long-recording-calibration)) |
+| **Word triggers** | Show a picture for a few seconds when you say a word, like "gg" | **Word triggers** box |
+| **Hotkeys** | Keys that work in-game. **Ctrl+Alt+Shift+1–7** lock a mood, **+0** goes back to automatic | **Hotkeys** box |
+| **Settings** | Fade style, reaction speed and more. **Reset to defaults** undoes everything | **Settings** box |
+| **Backup** | Save all pictures and settings in one file | **Backup** box → **Export setup** |
 
-Double-click the same launcher (`run-cpu.bat`, `run-gpu.bat` or `run-amd.bat`) again and wait for the setup page line. Your pictures and settings are remembered. OBS reconnects by itself once the app is running.
+## Quick fixes
 
-### If something isn't working
+| Problem | Try this |
+|---|---|
+| The picture never changes | Check the **Live** box says **Speaking** when you talk; if not, pick another mic. If the top button says **Start listening**, click it |
+| OBS shows nothing | Is the black window still open? Does the mood have a picture (or a ★ default)? In OBS, right-click the source → **Refresh** |
+| It picks the wrong mood | Calibrate. If calm talk often shows as sad, try the [long-recording calibration](#long-recording-calibration) |
+| "An Application Control policy has blocked this file" | That's Windows' Smart App Control: see [Troubleshooting](#troubleshooting) |
+| The black window shows an error and stops | Take a screenshot and check [Troubleshooting](#troubleshooting) |
 
-- **The picture never changes:** check that the **Live** box says **Speaking** when you talk. If not, pick a different mic in Step 4. Also check the **Stop listening** button at the top: if it says **Start listening**, click it.
-- **OBS shows nothing:** make sure the black window is still open, and that the mood has a picture (or you've set a ★ default). In OBS, right-click the source and choose **Refresh**.
-- **It picks the wrong mood:** do the calibration. Speaking a bit more expressively helps too, since the app listens to both your words and your tone.
-- **"An Application Control policy has blocked this file":** this is Windows' Smart App Control; see [Troubleshooting](#troubleshooting).
-- **The black window shows an error and stops:** take a screenshot of it. The [Troubleshooting](#troubleshooting) section covers the common ones.
+---
+
+# Reference
 
 ## Features
 
-- **Words and tone of voice.** A text model reads what you say, and a second model listens to how you say it. Their scores are combined with a weight you control, so a sarcastic "great" or a laugh can count.
-- **Your images and GIFs.** Add several per emotion, shown at random or in a cycle. Optional **Mild** and **Strong** versions are picked by how confident the detection is. Add files, paste a link (direct, Tenor or Giphy), or drag a GIF in from another browser tab. GIFs restart from their first frame each time they appear.
-- **Fallbacks.** An emotion with no images can borrow another emotion's images, or show your default image.
-- **Word triggers.** Say "gg" or "let's go" and a chosen image or GIF shows for a few seconds, then the emotion image comes back. Each trigger can list alternative spellings and has a Test button for checking it in OBS.
-- **Slang.** Triggers forgive how speech-to-text spells things: "sup" fires on "Wassup", "bruh" on "Bruhhhh", and "lol" on "L-O-L". Slang is also read as plain English before emotion scoring, so "lol" counts as "haha" and "that was fire" as "that was amazing". Without this the text model, trained on ordinary English, reads "lol" as neutral and "no cap that was fire" as anger.
-- **Updates while you talk.** During long sentences, the words so far are re-checked as you go (every 0.5 s of speech on a GPU, every 1 s on a CPU), so the image can change before you pause.
-- **Hotkeys you choose.** Global hotkeys work while a game has focus. Pick any key combination and what it does: hold an emotion, show any image (a word-trigger image or any other) until you press it again or for a few seconds, fire a word trigger, or go back to automatic. The setup page has buttons for holding emotions too, and a Stream Deck can do the same over HTTP.
-- **Calibration that adapts to you.** Read 14 short lines. The app learns how your voice and mic sound and profiles how you speak (pauses, volume against background noise, expressiveness). It then tests whether tone of voice helps for you and recommends settings, each with its reason. You choose which to apply.
-- **CPU or GPU.** Choose where the models run on the setup page. Switching takes effect while the app runs. GPU support (NVIDIA, or AMD Radeon, which is untested so far) is an optional install.
-- **Live settings.** Every display and detection setting can be changed on the setup page while you stream. Changes apply immediately and are saved.
-- **Responsive by default.** The image follows every sentence. Optional anti-flicker controls (smoothing, a hold-off before switching, a minimum time on screen) give a calmer overlay if you want one.
-- **Transitions and effects.** Cross-fade, cut or bounce between images, plus an optional effect per emotion when its image appears: shake, pulse, jump, tremble or droop.
-- **OBS scenes and filters.** The emotion can switch OBS scenes, or turn a filter on (for example a red colour correction for anger), through OBS's built-in WebSocket server.
-- **Your mic is remembered by name,** so plugging in a headset or webcam doesn't switch the app to the wrong input.
-- **Stop/Start listening.** Pausing closes the microphone completely, so your system's mic-in-use indicator goes off, and the overlay shows your neutral image.
-- **Backup.** Export your whole setup (images, triggers and settings) as one zip, and import it on another PC or share it.
+| Feature | Details |
+|---|---|
+| **Words and tone of voice** | A text model reads what you say, a second model listens to how you say it. They're combined with a weight you control, so a sarcastic "great" or a laugh can count |
+| **Your images and GIFs** | Several per emotion, random or in a cycle. Optional **Mild** and **Strong** versions picked by confidence. Add files, paste a link (direct, Tenor or Giphy), or drag a GIF in from another tab. GIFs restart from their first frame each time |
+| **Fallbacks** | An emotion with no images can borrow another emotion's, or show your default image |
+| **Word triggers** | Say "gg" or "let's go" and a chosen image shows for a few seconds. Alternative spellings and a **Test** button |
+| **Slang** | Triggers forgive speech-to-text spelling ("sup" fires on "Wassup", "bruh" on "Bruhhhh", "lol" on "L-O-L"). Slang is also read as plain English before scoring, so "that was fire" counts as "that was amazing" rather than anger |
+| **Updates while you talk** | Long sentences are re-checked as you go (every 0.5 s of speech on a GPU, 1 s on a CPU) |
+| **Hotkeys you choose** | Global, work in-game: hold an emotion, show any image (until pressed again or for a few seconds), fire a word trigger, or go back to automatic. Also over HTTP for a Stream Deck |
+| **Calibration** | Quick (14 read lines) or from a long recording of you playing. Corrects the models for your voice and mic, and recommends settings with reasons; you choose which to apply |
+| **CPU or GPU** | Switch on the setup page while running. GPU support (NVIDIA, or AMD, untested) is an optional install |
+| **Live settings** | Every display and detection setting changes instantly and is saved |
+| **Responsive by default** | The image follows every sentence. Optional anti-flicker controls calm it down |
+| **Transitions and effects** | Cross-fade, cut or bounce, plus a per-emotion effect: shake, pulse, jump, tremble or droop |
+| **OBS scenes and filters** | The emotion can switch OBS scenes or turn filters on, via OBS's built-in WebSocket server |
+| **Mic remembered by name** | Plugging in a headset or webcam doesn't switch the app to the wrong input |
+| **Stop/Start listening** | Pausing closes the mic completely (your system's mic indicator goes off) and shows neutral |
+| **Backup** | Export images, triggers and settings as one zip; import on another PC |
 
 ## Requirements
 
-- **Windows 10 or 11**, or **Linux** (64-bit, x86-64). It's developed on Windows. On Linux, the CPU and NVIDIA versions have been tested on Ubuntu 26.04, and everything except the global hotkeys works. macOS hasn't been tested.
-- **A microphone.** A dedicated input works best: "Stereo Mix" or a desktop-audio device would pick up game audio too.
-- **Disk space:** about 3.5 GB, or about 7 GB with NVIDIA GPU support and 10 GB or more with AMD GPU support. Most of this is the models, downloaded on first start.
-- **Optional: a graphics card,** which makes the app react faster and lets it use a more accurate speech-to-text model. About 4 GB of video memory is enough.
-  - **NVIDIA:** GTX 10 series or newer, with driver version 580 or newer.
-  - **AMD:** Radeon RX 7000 or 9000 series. On Windows this needs AMD Software: Adrenalin Edition 26.2.2 or newer. On Linux, any GPU that ROCm 7.2 supports works. AMD support is new and hasn't been tested on AMD hardware yet.
+| | |
+|---|---|
+| **System** | Windows 10/11, or 64-bit Linux (x86-64). Developed on Windows; CPU and NVIDIA tested on Ubuntu 26.04, where everything except global hotkeys works. macOS untested |
+| **Microphone** | A dedicated input works best. "Stereo Mix" or desktop-audio devices pick up game sound too |
+| **Disk space** | About 3.5 GB; about 7 GB with NVIDIA support, 10 GB or more with AMD. Mostly the models, downloaded on first start |
+| **Graphics card** (optional) | Faster, and a more accurate speech model. About 4 GB of video memory is enough |
+| ↳ NVIDIA | GTX 10 series or newer, driver 580 or newer |
+| ↳ AMD | Radeon RX 7000/9000. Windows needs Adrenalin 26.2.2 or newer; on Linux any GPU ROCm 7.2 supports. **Not yet tested on AMD hardware** |
 
-Python 3.11 or newer and [uv](https://docs.astral.sh/uv/) are used, but you don't need to install them first. The Windows launchers install uv, and uv installs Python.
+Python 3.11+ and [uv](https://docs.astral.sh/uv/) are used, but you don't need to install them first: the Windows launchers install uv, and uv installs Python.
 
-## Install and start
+## Install from the command line
 
-Step-by-step guides, including updating and uninstalling:
+Step-by-step guides, including updating and uninstalling: **[Windows](INSTALL-Windows.md)** (double-click a launcher) and **[Linux](INSTALL-Linux.md)** (PortAudio, uv, then `uv sync`).
 
-- **[Windows installation guide](INSTALL-Windows.md)**: download, then double-click `run-cpu.bat`, `run-gpu.bat` (NVIDIA) or `run-amd.bat` (AMD, untested).
-- **[Linux installation guide](INSTALL-Linux.md)**: install PortAudio and uv, then run `uv sync` and `uv run`.
-
-In short, with [uv](https://docs.astral.sh/uv/getting-started/installation/) installed, in the app's folder:
+With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed, in the app's folder:
 
 ```sh
 uv sync && uv run python -m emotion_overlay                               # CPU (Windows)
@@ -168,63 +177,49 @@ uv sync --extra gpu && uv run --extra gpu python -m emotion_overlay       # NVID
 uv sync --extra amd && uv run --extra amd python -m emotion_overlay       # AMD GPU, Linux only (untested)
 ```
 
-Keep the same `--extra` option on every `uv run`, or uv swaps in a different build of PyTorch. On Linux, a plain `uv sync` installs PyPI's PyTorch, which bundles NVIDIA's libraries (about 4 GB more), so use `--extra cpu` there. The first start downloads the models: about 2 GB, plus about 1.6 GB for the larger speech-to-text model (`large-v3-turbo`) the first time a GPU is used. After that the app starts offline.
+> [!WARNING]
+> Keep the same `--extra` option on every `uv run`, or uv swaps in a different build of PyTorch. On Linux a plain `uv sync` installs PyPI's PyTorch, which bundles NVIDIA's libraries (about 4 GB more), so use `--extra cpu` there.
 
-## Quick start
+The first start downloads about 2 GB of models, plus about 1.6 GB for the larger speech model (`large-v3-turbo`) the first time a GPU is used. After that the app starts offline.
 
-1. Start the app and open **http://127.0.0.1:8765/setup** (the console prints this address).
-2. **Microphone:** pick the mic you talk into and click **Use this mic**.
-3. **Processor:** choose **Automatic (GPU if available)**. It uses the GPU when GPU support is installed and the CPU otherwise.
-4. **Images:** add at least one image per emotion you care about, plus one for neutral. Click ★ on an image to make it the default, which is shown for emotions that have no images of their own.
-5. **Calibration:** click **Start**, read the 14 lines as prompted, then apply the recommended settings you agree with.
-6. Add the overlay to OBS (below) and talk. The **Live** panel shows what was heard, the scores, and how long each step took.
+**Quick start once it's running:** open **http://127.0.0.1:8765/setup** → pick your mic → **Processor: Automatic** → add images (★ one as default) → calibrate → add the overlay to OBS and talk. The **Live** panel shows what was heard, the scores and the timings.
 
 ## Add the overlay to OBS
 
 1. **Sources → + → Browser**.
-2. URL: `http://127.0.0.1:8765/overlay`. Set the width and height to your image size (for example 800 × 800).
-3. Leave custom CSS empty. The page background is already transparent.
+2. URL: `http://127.0.0.1:8765/overlay`. Width and height: your image size (for example 800 × 800).
+3. Leave custom CSS empty; the background is already transparent.
 
-URL options:
-
-| Option | Effect |
+| URL option | Effect |
 |---|---|
-| `?fit=cover` | Fill the source and crop, instead of fitting the whole image with empty borders |
-| `?label=1` | Show the emotion's name on the overlay (handy for testing) |
+| `?fit=cover` | Fill the source and crop, instead of fitting the whole image with borders |
+| `?label=1` | Show the emotion's name (handy for testing) |
 
-Combine them with `&`, for example `http://127.0.0.1:8765/overlay?fit=cover&label=1`.
-
-The overlay only ever receives "show this image". Transcripts and scores never reach it.
+Combine with `&`: `http://127.0.0.1:8765/overlay?fit=cover&label=1`. The overlay only ever receives "show this image"; transcripts and scores never reach it.
 
 ## The setup page
 
-The setup page is at **http://127.0.0.1:8765/setup**. Everything on it applies immediately and is saved.
+**http://127.0.0.1:8765/setup**. Everything on it applies immediately and is saved.
 
-### Microphone
+<details open>
+<summary><strong>Microphone, Processor, Live</strong></summary>
 
-Pick an input and click **Use this mic**. The mic is remembered by name (and audio system), so plugging devices in or out doesn't change which one is used. If the saved mic isn't connected, the page says so and the system default is used until it's back. The **Stop listening** button at the top of the page turns the microphone off completely.
+- **Microphone:** pick an input and click **Use this mic**. It's remembered by name and audio system, so plugging devices in or out doesn't change it. If it isn't connected, the page says so and the system default is used until it's back. **Stop listening** (top of the page) turns the mic off completely.
+- **Processor:** **Automatic (GPU if available)**, **GPU** or **CPU**. GPU means NVIDIA, or AMD when started with `run-amd.bat` / `--extra amd` (untested). The card shows which GPU was found (or why it can't be used) and where each model runs. Switching loads the models on the new device in the background while the current ones keep working. Not possible in the first seconds after starting, while models load.
+- **Live:** current emotion and image, whether you're speaking, the last transcript, the text the emotion model read, scores per emotion, the tone-of-voice result and timings. **Hold an emotion** keeps one on screen until you click **Automatic**; detection keeps running underneath. Word triggers still show over a held emotion.
 
-### Processor
+</details>
 
-Choose **Automatic (GPU if available)**, **GPU** or **CPU**. GPU means an NVIDIA card, or an AMD card when started with `run-amd.bat` or `--extra amd` (AMD is untested so far). The card shows which GPU was found (or why the GPU can't be used) and where each model is running right now. Switching loads the models on the new device in the background, and the current models keep handling your speech until the new ones are ready. Switching isn't possible during the first few seconds after starting, while the models are still loading.
+<details open>
+<summary><strong>Images and word triggers</strong></summary>
 
-### Live
+- **Images:** PNG, JPEG, WebP or GIF, up to 10 MB and 4096 × 4096 pixels each. Upload, paste a link (Tenor/Giphy pages work) or drag one in from another tab.
+  - Each image belongs to an emotion, or to the **trigger** group (used only by word triggers).
+  - **Tier:** **Any**, **Mild** or **Strong**. Strong shows at or above the Strong-tier threshold, Mild below. Without the needed tier, **Any** images are used, then whatever the emotion has.
+  - **★ Default** is shown for emotions without images. Names are only for you; files are stored under random IDs.
+- **Word triggers:** one or more phrases, an image and a duration (0.5–60 s). Matching is whole-word and ignores case, punctuation and apostrophes ("G.G." matches "gg"). Stretched letters ("bruhhhh") and common slang spellings match too. Up to 50. **Test** shows one without saying it.
 
-This panel shows the current emotion and image, whether you're speaking, the last transcript, the text the emotion model read, the scores for each emotion, the tone of voice result, and timings for each step.
-
-**Hold an emotion** keeps an emotion on screen until you click **Automatic**. Detection keeps running underneath, so the right image is back as soon as you release it. A word trigger still shows over a held emotion.
-
-### Images
-
-- Upload PNG, JPEG, WebP or GIF files (up to 10 MB and 4096 × 4096 pixels each), paste a link, or drag an image in from another browser tab. Tenor and Giphy page links work too.
-- Give each image an emotion, or the **trigger** group for images only word triggers use.
-- **Tier:** **Any**, **Mild** or **Strong**. Strong images show when the detection is confident (at or above the Strong-tier threshold), and Mild ones below it. When an emotion has no image of the needed tier, its **Any** images are used, and if there are none, whatever it has.
-- **★ Default:** shown for any emotion without images of its own.
-- Rename images. The name is only for you; files are stored under random IDs.
-
-### Word triggers
-
-Each trigger has one or more phrases, an image, and a duration (0.5–60 s). When you say a phrase, the image shows for that long, then the emotion image comes back. Matching is whole-word and ignores case, punctuation and apostrophes ("G.G." matches "gg", "whats" matches "what's"). Stretched letters match too ("bruh" fires on "bruhhhh"), as do common slang spellings. Up to 50 triggers. **Test** shows a trigger without saying it.
+</details>
 
 ### Settings
 
@@ -233,7 +228,7 @@ Each trigger has one or more phrases, an image, and a duration (0.5–60 s). Whe
 | **Display** | | |
 | Transition | Cross-fade | Cross-fade, cut or bounce between images |
 | Transition time | 300 ms | Length of the transition |
-| With several images | Pick randomly | Pick randomly (never the same twice in a row) or cycle in order |
+| With several images | Pick randomly | Random (never the same twice in a row) or cycle in order |
 | New image every sentence | Off | Switch to another image of the same emotion each time you speak |
 | Strong-tier threshold | 0.85 | Strong images show at or above this confidence |
 | **Detection** | | |
@@ -241,7 +236,7 @@ Each trigger has one or more phrases, an image, and a duration (0.5–60 s). Whe
 | When unsure | Keep current image | Keep the current image, or go to neutral |
 | Back to neutral after silence | 3 s | Show neutral after this much silence |
 | Text window | 6 s | How much recent speech is judged together. 0 = only the last sentence |
-| Update while talking | Automatic | Re-check your words while you're still talking: every 0.5 s on a GPU, every 1 s on a CPU, a fixed interval, or off |
+| Update while talking | Automatic | Re-check while you're still talking: every 0.5 s on a GPU, 1 s on a CPU, a fixed interval, or off |
 | Understand slang | On | Read slang as plain English before judging the emotion |
 | Pause that ends a sentence | 400 ms | Shorter reacts faster but may split sentences |
 | Longest chunk of speech | 6 s | Non-stop talking is judged in chunks this long |
@@ -251,95 +246,127 @@ Each trigger has one or more phrases, an image, and a duration (0.5–60 s). Whe
 | Voice weight | 0.25 | How much the voice counts against the words. 0 = words only, 1 = voice only |
 | **Stability (anti-flicker)** | | All off by default, so the image follows every sentence |
 | Smoothing | 1 (off) | Lower values average each new result with the previous ones |
-| Sentences before switching | 1 (off) | A new emotion must stay on top this many times in a row before it shows |
+| Sentences before switching | 1 (off) | A new emotion must stay on top this many times in a row |
 | Instant-switch lead | 0 (off) | A new emotion that leads by this much switches at once anyway |
 | Minimum time on screen | 0 s (off) | Keep each emotion at least this long |
-| **Emotions without images** | Default image | For each emotion, what to show when it has no images: the default image, or another emotion's images |
-| **Effects** | None | For each emotion, an animation the overlay plays when its image appears: shake, pulse, jump, tremble or droop |
+| **Emotions without images** | Default image | Per emotion: the default image, or another emotion's images |
+| **Effects** | None | Per emotion: shake, pulse, jump, tremble or droop when its image appears |
 
-**Reset to defaults** restores all of these. The microphone, images, triggers and calibration are not affected.
+**Reset to defaults** restores all of these. Mic, images, triggers and calibration aren't affected.
 
-### Calibration
-
-Calibration takes about two minutes. Click **Start calibration** and read the 14 short lines, two per emotion, in the way each one asks (for example "Say it happy" or "Say it scared"). Then the app:
-
-- **Corrects the models for your voice and mic.** For example, if the voice model hears you as a bit angry all the time, that's undone. It reports how often the words, the voice and the combination were right, before and after calibrating.
-- **Recommends settings for how you speak,** each with its reason. It measures your pauses (pause that ends a sentence), your speech against your background noise (voice detection threshold), whether tone of voice helps for your voice (voice weight), and how confidently your lines were recognised (minimum confidence and Strong-tier threshold). You tick the ones to apply.
-
-Recalibrate if you change microphones, rooms, or the voice model. A calibration made for a different voice model is switched off automatically.
+> [!TIP]
+> Set the voice weight high only if calibration recommends it. A high weight lets the tone-of-voice model overrule your words, and it can mistake calm, low-energy talk for sadness.
 
 ### Backup
 
-**Export setup** saves your images, word triggers and the settings from the Settings card as one zip. **Import setup…** replaces everything currently set up with a zip's contents, after checking all of it first. Calibration isn't included, because it's tuned to one voice and mic.
+**Export setup** saves images, word triggers and the Settings card as one zip. **Import setup…** checks a zip completely, then **replaces** everything with its contents. Calibration, hotkeys and OBS settings aren't included: they belong to one voice, mic and PC.
+
+## Calibration
+
+Two ways to tune the app to you. Both end the same way: a result showing how often the app was right before and after, and recommended settings, each with its reason, that you tick to apply. Saving one replaces the previous calibration, whichever kind it was.
+
+| | Quick calibration | Long-recording calibration |
+|---|---|---|
+| **You do** | Read 14 lines aloud, 2 per emotion | Play as usual, or pick a past stream's video. Then check some of the app's guesses |
+| **Takes** | About 2 minutes | 15–30 minutes of play (or a file), plus a few minutes checking |
+| **Learns from** | Acted speech | How you really sound while playing |
+| **Best for** | A first setup; a new mic or room | Calm talk shown as sad (or any other one-sided mistake); fine-tuning |
+
+Recalibrate after changing mics, rooms or the voice model. A calibration made for a different voice model is switched off automatically.
+
+### Quick calibration
+
+Click **Start calibration** and read each line the way it asks ("Say it happy", "Say it scared"…). The app then:
+
+- **Corrects the models for your voice and mic,** for example if the voice model hears you as slightly angry all the time.
+- **Recommends settings for how you speak:** your pauses (pause that ends a sentence), your speech against background noise (voice detection threshold), whether tone of voice helps you (voice weight), and how confidently your lines were recognised (minimum confidence, Strong-tier threshold).
+
+### Long-recording calibration
+
+People sound different while actually playing: quieter, flatter, faster. Read lines can't show that. In one 40-minute gaming session, the tone-of-voice model labelled **56%** of sentences as sad while the words were sad in **6%**. With a high voice weight, that put the sad image on screen for plain callouts like "we should go help them".
+
+**1. Give it a recording.** In **Calibrate from a long recording**, choose one:
+
+| Option | How |
+|---|---|
+| **Record while you play** | Click **Start recording**, play or stream as usual for 15–30 minutes, then **Stop and review**. The overlay keeps working the whole time |
+| **A video or audio file** | **Choose a file…**: MP4, MKV, MOV, WebM, MP3, WAV and more, up to 8 GB. If it has several audio tracks you pick one |
+| **A link** | A *direct* link to a video or audio file (one that downloads when opened). YouTube and Twitch pages don't work: download the file and choose it instead |
+
+The app finds every sentence with the same voice detection it uses live, then transcribes and scores each one. A 40-minute recording takes about a minute on an NVIDIA GPU (RTX 5070), and longer on a CPU.
+
+> [!TIP]
+> A recording with only your mic works best. In OBS you can put the mic on its own audio track (tick a separate track for the mic in **Edit → Advanced Audio Properties**, then enable that track under **Settings → Output → Recording**, in Advanced output mode). With a mixed recording, mark your friends' and the game's lines as **Not me**.
+
+**2. Automatic fix.** Over all your sentences, the app compares how often the tone-of-voice model hears each emotion with how often your words express it, and corrects the gap. It tells you what it found, for example *"Your tone of voice sounded like sadness in 56% of your sentences, but your words expressed sadness in 6%. Corrected: now 4%."*
+
+**3. Check its guesses.** Each sentence is listed with its time, a **▶** button to hear it, and the app's guess (dashed outline).
+
+- Click the emotion you really meant, or **Not me** for friends on voice chat, game sound or music. Click again to undo.
+- Filter by **Not checked yet**, **Guessed as emotional** or **All sentences**.
+- You don't have to check them all. **At least 8** lets the app also test the voice weight and measure accuracy on your real speech; 30 or more is better.
+
+**4. Calibrate.** Click **Calibrate**. The result appears in the **Calibration** box, with accuracy measured on the sentences you checked, each judged by a calibration fitted without it. Tick the recommended settings you want and save. You can keep checking sentences and click **Calibrate** again.
 
 ## Hotkeys and Stream Deck
 
-Global hotkeys work while another app (such as a game) has focus. Set them up in the **Hotkeys** card on the setup page; changes apply right away.
+Global hotkeys work while another app (like a game) has focus. Set them up in the **Hotkeys** card; changes apply right away. Windows only.
 
-- **Keys:** click a hotkey's key combination, then press the new keys. Combinations need Ctrl, Alt or Win, so they can't block normal typing. F1–F24, Pause and Scroll Lock also work on their own, which suits a Stream Deck or macro pad (many can send F13–F24). **Add hotkey** asks for the keys first.
-- **What it does:**
-  - **Hold an emotion:** shows that emotion's images until you press the same keys again or a "Back to automatic" key.
-  - **Show an image:** any image you've added, including the ones in **Word triggers only**. Either *until pressed again* (held like an emotion) or *for a few seconds* (like a word trigger).
-  - **Fire a word trigger:** as if you'd said its phrase.
-  - **Back to automatic:** lets go of a held emotion or image.
-- **Test** does what the hotkey does without pressing it. **Reset to defaults** brings back the defaults below. **Hotkeys on** turns them all off or on.
-- **Deleted images or triggers:** the hotkey stays, and the setup page says it's not working until you pick something else.
-- **Conflicts:** if another app already uses a combination, the setup page says so on that hotkey.
-- **Platforms:** hotkeys are Windows only. Elsewhere, use the setup page or the API.
-- **Not in backups:** like the OBS settings, hotkeys stay on this PC.
+| | |
+|---|---|
+| **Keys** | Click a hotkey's keys, then press new ones. Combinations need Ctrl, Alt or Win so they can't block typing. F1–F24, Pause and Scroll Lock also work alone (good for a Stream Deck or macro pad) |
+| **Hold an emotion** | Shows that emotion until you press the same keys again or a "Back to automatic" key |
+| **Show an image** | Any image, including **Word triggers only** ones, until pressed again or for a few seconds |
+| **Fire a word trigger** | As if you'd said its phrase |
+| **Back to automatic** | Lets go of a held emotion or image |
+| **Test / Reset / Hotkeys on** | Try one without pressing it / restore the defaults / turn them all off or on |
+| **Problems** | A hotkey whose image or trigger was deleted, or whose keys another app uses, is marked on the page |
 
-The defaults:
+Hotkeys aren't in backups (they stay on this PC). The defaults:
 
 | Keys | Holds |
 |---|---|
-| Ctrl+Alt+Shift + 1 | anger |
-| Ctrl+Alt+Shift + 2 | disgust |
-| Ctrl+Alt+Shift + 3 | fear |
-| Ctrl+Alt+Shift + 4 | joy |
-| Ctrl+Alt+Shift + 5 | neutral |
-| Ctrl+Alt+Shift + 6 | sadness |
-| Ctrl+Alt+Shift + 7 | surprise |
+| Ctrl+Alt+Shift + 1 … 7 | anger, disgust, fear, joy, neutral, sadness, surprise |
 | Ctrl+Alt+Shift + 0, or the same key again | back to automatic |
 
 They use three modifiers because on many keyboard layouts Ctrl+Alt acts as AltGr, and AltGr + a digit types a character.
 
-A **Stream Deck** (or any tool that can send HTTP requests) can control the same thing:
+**Stream Deck / HTTP.** Anything that can send HTTP requests can do the same:
 
 ```sh
 curl -X PUT http://127.0.0.1:8765/api/manual -H "Content-Type: application/json" -d "{\"emotion\": \"joy\"}"
 curl -X PUT http://127.0.0.1:8765/api/manual -H "Content-Type: application/json" -d "{\"emotion\": null}"
 ```
 
-The first holds joy; the second goes back to automatic. `{"image_id": "<id>"}` holds one image instead (image IDs are in `GET /api/images`). Other useful endpoints:
+The first holds joy, the second goes back to automatic. `{"image_id": "<id>"}` holds one image (IDs are in `GET /api/images`).
 
 | Request | Effect |
 |---|---|
 | `PUT /api/listening` with `{"listening": false}` or `true` | Stop or start listening |
 | `POST /api/triggers/<id>/test` | Show a word trigger's image |
-| `POST /api/hotkeys/<n>/press` | Do what hotkey number `n` (from 0, in the setup page's order) does |
+| `POST /api/hotkeys/<n>/press` | Do what hotkey `n` (from 0, in the setup page's order) does |
 | `PUT /api/compute` with `{"device": "auto"}`, `"cuda"` or `"cpu"` | Choose the processor |
 | `GET /api/status` | Current emotion, image and engine status |
 
-Requests from web pages on other sites are refused (see [Security](#security)). Tools like a Stream Deck aren't web pages, so they work.
+Requests from web pages on other sites are refused (see [Security](#security)). A Stream Deck isn't a web page, so it works.
 
 ## OBS scenes and filters
 
-The emotion can also control OBS itself: switch to a scene, and/or turn on a filter, for each emotion. This uses the WebSocket server built into OBS 28 and newer.
+The emotion can switch OBS scenes and/or turn on filters, through the WebSocket server built into OBS 28+.
 
-1. In OBS: **Tools → WebSocket Server Settings**, tick **Enable WebSocket server**, and click **Show Connect Info** to see the port and password.
-2. On the setup page, in **OBS scenes and filters**: tick **Connect to OBS**, enter the port (usually 4455) and password, and click **Save**. The status line says when it's connected.
-3. For each emotion, pick a scene to switch to, or leave it at "Don't switch".
-4. For filters: add the filters you want to a source in OBS first (for example a **Color Correction** filter called "Angry red" on your overlay's Browser source, turned off). Then choose that source under **Toggle filters on**, and pick a filter for each emotion. When an emotion starts showing, its filter is turned on and the other emotions' filters on that source are turned off.
+1. In OBS: **Tools → WebSocket Server Settings**, tick **Enable WebSocket server**, and click **Show Connect Info** for the port and password.
+2. On the setup page, **OBS scenes and filters**: tick **Connect to OBS**, enter the port (usually 4455) and password, **Save**. The status line says when it's connected.
+3. Per emotion, pick a scene, or leave it at "Don't switch".
+4. Filters: first add them to a source in OBS (for example a **Color Correction** filter called "Angry red" on the overlay source, turned off). Choose that source under **Toggle filters on**, then a filter per emotion. When an emotion shows, its filter turns on and the others on that source turn off.
 
-OBS follows the emotion the overlay shows, including one you hold by hand, but not word triggers. A scene or filter that was renamed or removed in OBS is reported in the status line without disconnecting. If OBS isn't running, the app keeps retrying every few seconds.
-
-The OBS address and password are saved in `config.yaml` on your PC only. They're never sent to the setup page, and they're left out of backups, so an imported setup can't make the app connect somewhere else.
+OBS follows the emotion on screen, including a held one, but not word triggers. Renamed or removed scenes and filters are reported without disconnecting. If OBS isn't running, the app retries every few seconds. The OBS address and password stay in `config.yaml` on your PC: never sent to the setup page, never in backups.
 
 ## Configuration file
 
-Settings are saved in `config.yaml` in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional; missing ones use their defaults. A few settings can only be changed here, and need a restart: the models, devices other than via the Processor card, the server address, upload limits and debug recording. Hotkeys and OBS settings have their own cards on the setup page.
+Settings live in `config.yaml` in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional. A few things can only be changed here, and need a restart: the models, devices (other than via the Processor card), the server address, upload limits and debug recording.
 
-These are all the settings, with their defaults:
+<details>
+<summary><strong>All settings, with their defaults</strong></summary>
 
 ```yaml
 audio:
@@ -445,16 +472,18 @@ debug:                      # privacy: both off; nothing is written to disk unle
 data_dir: data              # images, triggers, calibration
 ```
 
-**Other voice models:** any Hugging Face audio-classification model can be used as `audio_emotion.model`. Its labels must then be mapped in `label_map`. One label may stand for several emotions; for example, a 4-mood model might use `ang: [anger, disgust, fear]`. The voice's probability is then shared between those emotions in proportion to the text scores. Each emotion may appear only once.
+**Other voice models:** any Hugging Face audio-classification model can be `audio_emotion.model`. Map its labels in `label_map`. One label may stand for several emotions (a 4-mood model might use `ang: [anger, disgust, fear]`); its probability is then shared between them in proportion to the text scores. Each emotion may appear only once.
+
+</details>
 
 ## Command-line options
 
 | Option | Purpose |
 |---|---|
 | `--config PATH` | Use another config file (default `config.yaml`) |
-| `--no-audio` | Serve the web pages only, without loading models or opening the microphone |
+| `--no-audio` | Serve the web pages only: no models, no microphone |
 | `--open-browser` / `--no-open-browser` | Open the setup page on start (off by default) |
-| `--self-test` | Load every model, run each once without a microphone, then exit. A good first check if something doesn't work |
+| `--self-test` | Load every model, run each once without a mic, then exit. A good first check |
 | `--log-level DEBUG` | Verbose logs, including transcripts and any network requests |
 
 The Windows launchers pass options on, for example `run-gpu.bat --self-test`.
@@ -476,21 +505,24 @@ flowchart LR
     ws --> setup[Setup page]
 ```
 
-1. **Splitting speech into sentences.** [Silero VAD](https://github.com/snakers4/silero-vad) scores each 32 ms of audio for speech. A sentence ends after a 400 ms pause, and non-stop speech is cut every 6 s. While a sentence is still going, the part so far is re-checked (words only) every 0.5 s of speech on a GPU or every 1 s on a CPU.
-2. **Speech-to-text.** Whisper `base.en` runs through [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU the much larger and more accurate `large-v3-turbo` runs instead, taking about 110 ms per sentence there (on a CPU it would take about 5 s). On a GPU it runs through faster-whisper if NVIDIA's CUDA 12 libraries are installed, and otherwise through 🤗 transformers, which is always the case on AMD cards. Transformers is also the fallback when Windows blocks faster-whisper's native library. Either way, text Whisper thinks is noise is dropped; Whisper otherwise "hears" words like "you" in silence.
+1. **Sentences.** [Silero VAD](https://github.com/snakers4/silero-vad) scores each 32 ms of audio for speech. A sentence ends after a 400 ms pause; non-stop speech is cut every 6 s. While a sentence is going, the part so far is re-checked (words only) every 0.5 s of speech on a GPU, 1 s on a CPU.
+2. **Speech-to-text.** Whisper `base.en` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU, the larger and more accurate `large-v3-turbo` (about 110 ms per sentence there, about 5 s on a CPU), through faster-whisper if NVIDIA's CUDA 12 libraries are installed and otherwise 🤗 transformers (always on AMD, and the fallback when Windows blocks faster-whisper). Text Whisper thinks is noise is dropped; otherwise it "hears" words like "you" in silence.
 3. **Emotion from the words.** [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) scores the last ~6 s of transcript, after slang is rewritten as plain English.
-4. **Emotion from the voice.** [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from [Vox-Profile](https://arxiv.org/abs/2505.14648) is a WavLM-large model trained on MSP-Podcast, which is natural podcast speech rather than actors. It's a simplified, audio-only version of the top system in the INTERSPEECH 2025 speech emotion challenge. It was published for the authors' own code rather than as a standard transformers model, so `classify/vox_profile.py` rebuilds its small inference path and loads the weights directly. It runs on the same audio at the same time as Whisper. If it's still busy when the words are scored, the words-only result is shown first and then refined, so it never delays the first reaction.
-5. **Combining.** `final = (1 − w) · words + w · voice`, with `w = 0.25` by default. Calibration adds two small sets of per-emotion corrections in log space: one undoes a skew in the voice model for your voice and mic, and one adjusts the combined result.
-6. **Deciding what to show** (`state_machine.py`, pure and unit-tested). The top emotion is shown if it clears the minimum confidence. Silence returns to neutral. The optional anti-flicker rules (smoothing, a hold-off, a lead that switches instantly, a minimum display time) are off by default, so the image follows every sentence.
-7. **Showing it.** The image picker applies tiers, rotation and fallbacks, and the server sends the result over a WebSocket to the overlay page in OBS, which plays the emotion's effect if it has one. If OBS control is on, OBS switches scene or filters too.
+4. **Emotion from the voice.** [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from [Vox-Profile](https://arxiv.org/abs/2505.14648): WavLM-large trained on MSP-Podcast (natural podcast speech, not actors), a simplified audio-only version of the top system in the INTERSPEECH 2025 speech emotion challenge. It's published for the authors' own code, so `classify/vox_profile.py` rebuilds its inference path and loads the weights directly. It runs alongside Whisper; if it's still busy when the words are scored, the words-only result shows first and is then refined.
+5. **Combining.** `final = (1 − w) · words + w · voice`, with `w = 0.25` by default. Calibration adds two small sets of per-emotion corrections in log space: one undoes a skew in the voice model for your voice and mic, one adjusts the combined result. The long-recording calibration's automatic step matches how often the voice model hears each emotion to how often your words express it, cutting an overused emotion by more than it boosts a rare one.
+6. **Deciding what to show** (`state_machine.py`, pure and unit-tested). The top emotion shows if it clears the minimum confidence. Silence returns to neutral. Optional anti-flicker rules are off by default.
+7. **Showing it.** The image picker applies tiers, rotation and fallbacks; the server sends the result over a WebSocket to the overlay in OBS, which plays the emotion's effect. With OBS control on, OBS switches scene or filters too.
 
 The server is FastAPI on `127.0.0.1:8765`. The web pages are plain JavaScript and CSS, with no build step.
 
 ## Accuracy and speed
 
-### Accuracy on acted speech
+**In short:** on a GPU it reacts in about 0.55 s and understands speech best. The words carry most of the emotion in normal talk; the voice model helps most with acted or very expressive speech, and calibration tunes the balance for you.
 
-The models were evaluated on [RAVDESS](https://zenodo.org/records/1188976): 1,440 clips from 24 actors. **Every clip is one of two emotionally neutral sentences** ("Kids are talking by the door"), each said in 8 emotions ("calm" counts as neutral). That isolates what the *voice* contributes, because the words carry no emotion. Chance is 14.3%.
+<details>
+<summary><strong>Emotion accuracy on acted speech (RAVDESS)</strong></summary>
+
+Evaluated on [RAVDESS](https://zenodo.org/records/1188976): 1,440 clips from 24 actors. **Every clip is one of two emotionally neutral sentences** ("Kids are talking by the door"), each said in 8 emotions ("calm" counts as neutral). That isolates what the *voice* contributes, because the words carry no emotion. Chance is 14.3%.
 
 | Mode | Accuracy | Macro-F1 |
 |---|---|---|
@@ -501,14 +533,17 @@ The models were evaluated on [RAVDESS](https://zenodo.org/records/1188976): 1,44
 | Combined + per-speaker calibration (0.25) | 25.8% | 13.1% |
 | *Previous voice model (`superb/hubert-base-superb-er`), voice only* | *21.4%* | *11.9%* |
 
-- **The voice model transfers to unseen actors.** Trained only on podcast speech, it gets 40% across 7 emotions, nearly double the previous model. It's best at anger (79% recall), fear (70%), neutral (48%) and surprise (38%). It mostly misses acted joy (7%) and disgust (2%), so the words do the work for those.
-- **At the default weight, the words dominate.** A confident "neutral" from the words outweighs the voice here, because these sentences are neutral by design. In normal speech the words usually carry the emotion, which is why the default stays at 0.25. Calibration measures this for your own voice and recommends a weight.
-- **Calibration helps the voice most.** Fitting on 2 clips per emotion per speaker and testing on the rest takes the voice alone from 40% to 44%.
-- **Acted speech isn't streaming.** Actors exaggerate far more than people talking naturally, so these numbers say little about how often it's right on stream. That depends mostly on the words.
+- **The voice model transfers to unseen actors:** 40% across 7 emotions, nearly double the previous model. Best at anger (79% recall), fear (70%), neutral (48%) and surprise (38%); it mostly misses acted joy (7%) and disgust (2%), where the words do the work.
+- **At the default weight, the words dominate.** A confident "neutral" from the words outweighs the voice here, because these sentences are neutral by design. In normal speech the words usually carry the emotion, which is why the default stays at 0.25. Calibration measures this for your voice.
+- **Calibration helps the voice most:** fitting on 2 clips per emotion per speaker takes the voice alone from 40% to 44%.
+- **Acted speech isn't streaming.** Actors exaggerate far more than people talking naturally, so these numbers say little about accuracy on stream. That depends mostly on the words, and on how the voice model reads your normal speaking voice (see [Long-recording calibration](#long-recording-calibration)).
 
-### Speech-to-text accuracy
+</details>
 
-The emotion from your words can only be as good as the transcript. The table shows the share of words each Whisper model got wrong (word error rate; lower is better) on four kinds of speech, measured on an RTX 5070 and a 16-thread Ryzen CPU:
+<details>
+<summary><strong>Speech-to-text accuracy</strong></summary>
+
+The emotion from your words is only as good as the transcript. Share of words each Whisper model got wrong (lower is better), on an RTX 5070 and a 16-thread Ryzen CPU:
 
 | Speech | `base.en`, CPU (CPU default) | `small.en`, CPU | `large-v3-turbo`, GPU (GPU default) |
 |---|---|---|---|
@@ -516,97 +551,121 @@ The emotion from your words can only be as good as the transcript. The table sho
 | Indian-accented English ([Svarah](https://huggingface.co/datasets/ai4bharat/Svarah), 1,000 clips, 117 speakers) | 12.7% | 9.9% | 7.4% |
 | Unscripted meetings, headset mic ([AMI](https://huggingface.co/datasets/edinburghcstr/ami), 504 clips) | 17.1% | 15.9% | 15.1% |
 | The 28 read lines, with 3 people talking 5 dB quieter in the background | 37.0% | 21.0% | 12.5% |
-| Meetings, one microphone on the table, people talking over each other (AMI, 634 clips) | 41.6% | 36.3% | 34.1% |
+| Meetings, one mic on the table, people talking over each other (AMI, 634 clips) | 41.6% | 36.3% | 34.1% |
 | **Time per sentence** | **~0.4 s** | **~1.2 s** | **~0.1 s** |
 
-- **The GPU model is the most accurate and also the fastest.** Its advantage is biggest where it matters on stream: accents, and other voices in the background.
-- **On a CPU, `small.en` is a middle ground.** It makes about a fifth fewer mistakes than `base.en` with accents, and about 40% fewer with background voices, but each sentence takes about 0.8 s longer. To use it, set `asr.model: small.en` in `config.yaml`.
-- **Crosstalk is hard for every model.** With background voices as loud as yours, all of them get about half the words or more wrong, and some transcribe the other voices instead of yours. A headset or a directional mic close to your mouth helps more than any model.
-- **Not every mistake is a real mishearing.** Some come from writing styles ("70 %" against "70%") or from errors in the reference transcripts. These affect every model equally, so the comparison is fair, but the true error rates are a bit lower.
+- **The GPU model is the most accurate and the fastest,** with the biggest gains where it matters on stream: accents and background voices.
+- **On a CPU, `small.en` is a middle ground:** about a fifth fewer mistakes than `base.en` with accents and 40% fewer with background voices, for about 0.8 s more per sentence. Set `asr.model: small.en` to use it.
+- **Crosstalk is hard for every model.** With background voices as loud as yours, all of them get about half the words or more wrong. A headset or a directional mic helps more than any model.
+- **Not every mistake is a real mishearing.** Some are writing styles ("70 %" vs "70%") or errors in the reference transcripts; they affect every model equally.
 
-### Speed
+</details>
 
-Measured from the end of a sentence to the new emotion being decided. On top of this come the overlay's transition (300 ms by default) and OBS.
+<details>
+<summary><strong>Speed</strong></summary>
+
+From the end of a sentence to the new emotion being decided. On top come the overlay's transition (300 ms by default) and OBS.
 
 | | Pause that ends a sentence | Speech-to-text | Voice model | Total (median) |
 |---|---|---|---|---|
 | CPU (16-thread Ryzen) | 400 ms | ~300–400 ms | ~500–850 ms, in parallel | ~0.7–0.8 s first reaction, ~0.8–1.3 s with voice |
 | GPU (RTX 5070) | 400 ms | ~110 ms (`large-v3-turbo`) | ~30–50 ms, in parallel | ~0.55 s |
 
-On the CPU the words-only result appears first, and the tone-of-voice result follows. On the GPU both arrive together. On a GPU the models use about 3.5 GB of video memory. During long sentences, **Update while talking** reacts before you pause.
+On the CPU the words-only result appears first and the voice result follows; on the GPU both arrive together. On a GPU the models use about 3.5 GB of video memory.
+
+</details>
 
 ## Privacy
 
 - **Audio stays in memory.** Sentences are processed and discarded. Nothing is written to disk unless you turn on `debug.save_audio` or `debug.save_transcripts`.
-- **Transcripts aren't logged** at the default log level. Only timings and the detected emotion are.
-- **No network after the first start,** except when you add an image from a link (only that link is fetched). Models load from the local cache, and Hugging Face is contacted only if a model is missing. Telemetry is turned off. To check, run with `--log-level DEBUG` and look for HTTP requests.
-- **Hotkeys don't watch your keyboard.** They're registered with Windows' `RegisterHotKey`, which only reports the app's own key combinations. There's no keyboard hook. Turn them off with **Hotkeys on** on the setup page.
+- **Long-recording calibration** keeps its sentences' audio and transcripts in memory only, for the review list, until you discard it, start another or close the app. A file you upload or link is saved to a private temporary folder and deleted as soon as its sound has been analysed.
+- **Transcripts aren't logged** at the default log level, only timings and the detected emotion.
+- **No network after the first start,** except when you add an image or a recording from a link (only that link is fetched). Models load from the local cache; Hugging Face is contacted only if a model is missing. Telemetry is off. To check, run with `--log-level DEBUG` and look for HTTP requests.
+- **Hotkeys don't watch your keyboard.** They use Windows' `RegisterHotKey`, which only reports the app's own combinations. There's no keyboard hook.
 - **The overlay never receives transcripts.** Only the setup page gets them.
-- **Calibration keeps only numbers.** `data/calibration.json` holds fitted corrections and accuracy figures, not your recordings or words. It's left out of backups.
-- **OBS control is off unless you turn it on.** Then the app connects only to the OBS address you enter, and sends only scene and filter changes. The OBS password is kept in `config.yaml` and never sent to the setup page.
-- **Your files stay local.** `config.yaml` and `data/` (images, triggers, calibration) are in the project folder and are excluded from git.
-- **Installing GPU support downloads from the vendor.** `run-gpu.bat` and `--extra gpu` get PyTorch from pytorch.org. `run-amd.bat` gets it from AMD (repo.radeon.com), and `--extra amd` from pytorch.org. Nothing about you is sent.
+- **Calibration keeps only numbers.** `data/calibration.json` holds fitted corrections and accuracy figures, not recordings or words. It's left out of backups.
+- **OBS control is off unless you turn it on,** and then only talks to the address you enter. Its password stays in `config.yaml`.
+- **Your files stay local.** `config.yaml` and `data/` are in the project folder and excluded from git.
+- **Installing GPU support downloads from the vendor:** PyTorch from pytorch.org (`run-gpu.bat`, `--extra gpu`, `--extra amd`) or AMD's repo.radeon.com (`run-amd.bat`). Nothing about you is sent.
 
 ## Security
 
-The server only listens on `127.0.0.1`, so other computers can't reach it. Web pages open in your own browser can still send requests to localhost, so the server also defends against those:
+The server only listens on `127.0.0.1`, so other computers can't reach it. Web pages in your own browser can still send requests to localhost, so the server also defends against those.
+
+<details>
+<summary><strong>Threats and protections</strong></summary>
 
 | Threat | Protection |
 |---|---|
 | A website reads your live transcript over the WebSocket | WebSocket connections from any other origin are refused |
 | A website uploads, deletes or changes settings | `POST`/`PUT`/`DELETE` requests from another origin get 403 |
 | DNS rebinding | Requests whose `Host` header isn't localhost get 400 |
-| A malicious upload (script, SVG, polyglot, decompression bomb) | The type is decided by parsing the content with Pillow, limited to PNG/JPEG/WebP/GIF, with size and pixel limits. Served with a fixed type and `nosniff` |
+| A malicious image upload (script, SVG, polyglot, decompression bomb) | The type is decided by parsing the content with Pillow, limited to PNG/JPEG/WebP/GIF, with size and pixel limits. Served with a fixed type and `nosniff` |
+| A malicious recording for calibration | Read only as audio by FFmpeg (through PyAV), capped at 8 GB, stored under a fixed name in a private temporary folder and deleted after analysis |
 | Path traversal through a file name or ID | Files are stored under random IDs. Upload file names are display-only. IDs are validated and looked up, never used as paths |
 | Script injection through file names or transcripts | The pages never insert HTML from data. A strict Content Security Policy allows only the app's own scripts |
 | A malicious backup zip (zip slip, zip bomb, disguised files) | Nothing is extracted by its path in the zip. Only expected entries are read, into memory, with limits on count and size. Every image is re-validated. Everything is checked before anything changes |
-| "Add from link" used to reach your network (router, localhost, cloud metadata) | Only http/https to **public** addresses, re-checked on every redirect, with no system proxy. Size-capped, and validated like an upload |
+| "Add from link" (image or recording) used to reach your network (router, localhost, cloud metadata) | Only http/https to **public** addresses, re-checked on every redirect, with no system proxy. Size-capped |
 | A shared setup that changes risky settings | Imports only apply display and detection settings. The server address, OBS connection, debug recording, models and limits are ignored |
+
+</details>
 
 ## Troubleshooting
 
-**Run the self-test first.** On Windows, run `run-cpu.bat --self-test` (or the same with `run-gpu.bat` or `run-amd.bat`). Anywhere, you can run `uv run python -m emotion_overlay --self-test`, adding the `--extra` option you installed with after `uv run` (for example `uv run --extra cpu ...` on Linux). It loads every model and runs each once, and names the step that fails. The installation guides for [Windows](INSTALL-Windows.md#windows-problems) and [Linux](INSTALL-Linux.md#linux-problems) cover problems specific to each system.
+> [!TIP]
+> **Run the self-test first.** On Windows: `run-cpu.bat --self-test` (or with `run-gpu.bat` / `run-amd.bat`). Anywhere: `uv run python -m emotion_overlay --self-test`, with the `--extra` you installed with after `uv run`. It loads and runs every model and names the step that fails. The [Windows](INSTALL-Windows.md#windows-problems) and [Linux](INSTALL-Linux.md#linux-problems) guides cover system-specific problems.
 
-**"An Application Control policy has blocked this file" / Smart App Control.** Windows' Smart App Control blocks unsigned native libraries that don't have a good reputation yet, and its verdict on a file can change over time.
-- If it blocks faster-whisper, the app falls back to Whisper through PyTorch automatically (`asr.backend: auto`). That's slower on the CPU, but works.
-- If it blocks PyTorch itself in one environment, try the other launcher. The GPU environment's PyTorch build can also run on the CPU: choose **Processor → CPU**.
+<details open>
+<summary><strong>Common problems</strong></summary>
+
+**"An Application Control policy has blocked this file" (Smart App Control).** Windows blocks unsigned native libraries without a good reputation yet, and its verdict can change over time.
+- If it blocks faster-whisper, the app falls back to Whisper through PyTorch automatically (`asr.backend: auto`). Slower on a CPU, but it works.
+- If it blocks PyTorch in one environment, try the other launcher. The GPU environment's PyTorch can also run on the CPU: **Processor → CPU**.
 - `uv run pytest` can be blocked too; `uv run python -m pytest` works.
 
-**GPU not available.** The Processor card says why:
-- "PyTorch is CPU-only": use `run-gpu.bat` or `run-amd.bat`, or run `uv sync --extra gpu` (or `--extra amd` on Linux).
-- "No NVIDIA GPU" or "No AMD GPU supported by ROCm": the driver is missing or too old, or the card isn't supported. See the installation guide for your system.
+**GPU not available.** The Processor card says why.
+- "PyTorch is CPU-only": use `run-gpu.bat` or `run-amd.bat`, or `uv sync --extra gpu` (`--extra amd` on Linux). Keep that `--extra` on every `uv run`.
+- "No NVIDIA GPU" / "No AMD GPU supported by ROCm": the driver is missing or too old, or the card isn't supported. See your system's installation guide.
 
-If you start the app by hand, keep the `--extra` option you installed with on every `uv run`. Without it, uv swaps in a different build of PyTorch.
+**"The models are still loading"** when switching processor or starting a long-recording calibration: wait until the status says it's listening.
 
-**"The models are still loading" when switching processor.** Wait until the status says it's listening, then switch.
+**Setup page doesn't open, or "already running".** Only one copy can run. Close the other console window, or open http://127.0.0.1:8765/setup. If port 8765 is taken, set `server.port` in `config.yaml` and use the new port in OBS too.
 
-**Setup page doesn't open, or "already running".** Only one copy can run at a time. Close the other console window (or terminal), or open http://127.0.0.1:8765/setup in your browser. If port 8765 is taken by another program, set `server.port` in `config.yaml`, and use the new port in OBS too.
+**"Your saved mic isn't connected".** Plug it in and click **Refresh list**, or pick another mic.
 
-**"Your saved mic isn't connected".** Plug it in and click **Refresh list**, or pick another mic and click **Use this mic**.
+**It reacts to game audio or background noise.** Use a dedicated mic input rather than desktop audio, raise the voice detection threshold, or calibrate so the app can measure your background noise.
 
-**It reacts to game audio or background noise.** Use a dedicated mic input rather than a desktop-audio device, raise the voice detection threshold, or run calibration so it can measure your background noise.
+**Calm talk often shows as sad (or another wrong emotion).** Lower the voice weight, or run the [long-recording calibration](#long-recording-calibration), which corrects exactly this.
 
-**It mishears you when others are talking nearby.** Use a headset or a mic close to your mouth. A GPU helps a lot, because it runs a larger speech model. On a CPU, `asr.model: small.en` in `config.yaml` is more accurate than the default, at about 0.8 s more per sentence.
+**It mishears you when others talk nearby.** Use a headset or a close mic. A GPU helps a lot (larger speech model). On a CPU, `asr.model: small.en` is more accurate at about 0.8 s more per sentence.
 
-**The image changes too often.** Turn on one of the Stability settings, for example "Sentences before switching" = 2 or "Minimum time on screen" = 3 s.
+**The image changes too often.** Turn on a Stability setting, for example "Sentences before switching" = 2 or "Minimum time on screen" = 3 s.
 
-**Hotkeys don't work.** They're Windows only. The setup page marks any combination another app already uses; click it and press different keys. Some combinations are reserved by Windows (such as Ctrl+Alt+Delete or many Win + letter keys) and can't be used.
+**Hotkeys don't work.** They're Windows only. The setup page marks combinations another app uses; pick different keys. Some (Ctrl+Alt+Delete, many Win + letter keys) are reserved by Windows.
 
-**OBS won't connect.** Check that OBS is running, that **Enable WebSocket server** is ticked in **Tools → WebSocket Server Settings**, and that the port and password match **Show Connect Info**. "OBS refused the connection" means the password is wrong.
+**OBS won't connect.** Check OBS is running, **Enable WebSocket server** is ticked, and the port and password match **Show Connect Info**. "OBS refused the connection" means the password is wrong.
 
-**The first start is slow.** It downloads about 1.8 GB of models once, plus about 1.6 GB for `large-v3-turbo` the first time the GPU is used. Later starts load them from the cache.
+**A link for the long-recording calibration doesn't work.** It must be a direct link to the file itself. Video pages (YouTube, Twitch, a Google Drive preview) are web pages, not files: download the file and use **Choose a file…**.
+
+**The first start is slow.** It downloads about 1.8 GB of models once, plus about 1.6 GB for `large-v3-turbo` the first time the GPU is used.
+
+</details>
 
 ## Known limitations
 
 - **English only** by default. The speech-to-text language is a setting, but the default text emotion model is English.
-- **The voice model is big:** a 1.3 GB download, and about 0.85 s per sentence on a CPU (about 40 ms on a GPU). It rarely recognises acted joy or disgust; the words do the work there.
-- **Calibration is small.** 14 lines can only nudge the models, not retrain them, and the recommendations are only as good as how naturally you read the lines.
+- **The voice model is big:** 1.3 GB, about 0.85 s per sentence on a CPU (about 40 ms on a GPU). It rarely recognises acted joy or disgust; the words do the work there.
+- **Quick calibration is small.** 14 lines can only nudge the models, and the recommendations are only as good as how naturally you read them.
+- **Long-recording calibration's automatic step trusts your words.** It uses the text model as its reference, so it can't fix mistakes the words model makes, and in a mixed recording it also hears your friends unless you mark them **Not me**. Checking sentences fixes both.
 - **No prebuilt installer.** It would need code signing to get past Smart App Control, so the app runs from source.
 - **Hotkeys are Windows only.**
-- **AMD GPU support is untested.** It has never been run on an actual AMD card. What has been checked: on Windows, `run-amd.bat` installs AMD's PyTorch build, and without an AMD card the app falls back to the CPU and passes its self-test; on Linux, the `amd` install resolves. If you have a Radeon card, please report whether it works.
-- **Speech-to-text struggles with crosstalk.** With other people talking at the same time as you, Whisper makes many more mistakes, especially the small CPU model (see [Speech-to-text accuracy](#speech-to-text-accuracy)).
+- **AMD GPU support is untested** on an actual AMD card. Checked so far: on Windows, `run-amd.bat` installs AMD's PyTorch, and without an AMD card the app falls back to the CPU and passes its self-test; on Linux the `amd` install resolves. If you have a Radeon card, please report whether it works.
+- **Speech-to-text struggles with crosstalk,** especially the small CPU model (see [Accuracy and speed](#accuracy-and-speed)).
 
 ## Project layout
+
+<details>
+<summary><strong>Files and folders</strong></summary>
 
 ```
 run-cpu.bat, run-gpu.bat,  Windows launchers: CPU, NVIDIA GPU and AMD GPU (the GPU
@@ -623,20 +682,23 @@ src/emotion_overlay/
   classify/                Text model, voice model (vox_profile.py), text window, fusion maths
   state_machine.py         Decides what is shown (pure, no I/O)
   calibration.py           Calibration prompts, fitting and storage
-  personalize.py           Recommended settings from your calibration lines
+  personalize.py           Recommended settings from calibration
+  longform.py, media.py    Long-recording calibration; reading sound from video/audio files
   slang.py, triggers.py    Slang table and word triggers
-  images.py, fetch.py      Image store and validation; safe "add from link"
+  images.py, fetch.py      Image store and validation; safe downloads from links
   compute.py               CPU/GPU detection (NVIDIA CUDA or AMD ROCm)
   hotkeys.py               Windows global hotkeys
   obs.py                   OBS remote control (obs-websocket v5)
   settings.py, config.py   Settings that can change live; the config file
   backup.py                Export and import of your setup
-  server/                  FastAPI app, WebSocket hub, image picker, security checks
+  server/                  FastAPI app, WebSocket hub, image picker, calibration control, security
   selftest.py              --self-test
 web/                       Setup page and overlay page (plain JavaScript, no build step)
 ```
 
-Your own files, created when you use the app: `config.yaml` (settings) and `data/` (images, triggers and calibration). Both stay on your PC.
+Created when you use the app, and kept on your PC: `config.yaml` (settings) and `data/` (images, triggers, calibration).
+
+</details>
 
 ## Credits
 
@@ -644,6 +706,7 @@ Your own files, created when you use the app: `config.yaml` (settings) and `data
 - Voice activity detection: [Silero VAD](https://github.com/snakers4/silero-vad) (MIT)
 - Emotion from text: [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) by Jochen Hartmann
 - Emotion from voice: [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from Vox-Profile ([paper](https://arxiv.org/abs/2505.14648)), under the OpenRAIL licence on its model card
+- Reading video and audio files: [PyAV](https://github.com/PyAV-Org/PyAV) and [FFmpeg](https://ffmpeg.org/)
 - Evaluation data, not included in this repository: [RAVDESS](https://zenodo.org/records/1188976), © Livingstone & Russo 2018, CC BY-NC-SA 4.0; [Svarah](https://huggingface.co/datasets/ai4bharat/Svarah) by AI4Bharat, CC BY 4.0; [AMI Meeting Corpus](https://huggingface.co/datasets/edinburghcstr/ami), CC BY 4.0
 - Built with [FastAPI](https://fastapi.tiangolo.com/), [PyTorch](https://pytorch.org/), [sounddevice](https://python-sounddevice.readthedocs.io/) and [Pillow](https://python-pillow.org/)
 

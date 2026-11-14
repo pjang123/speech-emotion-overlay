@@ -16,7 +16,7 @@ more line than the current weight does. Nothing is applied automatically; the
 setup page shows the reasons and the user applies them.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -72,7 +72,12 @@ def _round_to(value: float, step: float) -> float:
     return round(round(value / step) * step, 4)
 
 
-def personalize(samples: Sequence[CalibrationSample], config: AppConfig) -> Personalization:
+def personalize(
+    samples: Sequence[CalibrationSample],
+    config: AppConfig,
+    voice_prior: Mapping[str, float] | None = None,
+) -> Personalization:
+    """`voice_prior`: a starting voice correction to refine (long recordings)."""
     audio = config.audio_emotion
     current_weight = audio.weight if audio.enabled else 0.0
     labels = [s.label for s in samples]
@@ -82,13 +87,15 @@ def personalize(samples: Sequence[CalibrationSample], config: AppConfig) -> Pers
     weight = current_weight
     loo: list[Scores] | None = None
     if audio.enabled and any(s.voice for s in samples):
-        weight, loo, recs, tested = _voice_weight(samples, labels, config, current_weight)
+        weight, loo, recs, tested = _voice_weight(
+            samples, labels, config, current_weight, voice_prior
+        )
         recommendations += recs
         profile["voice_weight_accuracy"] = tested
     if loo is None:
-        loo = loo_scores(samples, audio.label_map, weight)
+        loo = loo_scores(samples, audio.label_map, weight, voice_prior)
 
-    calibration = calibrate(samples, audio.label_map, weight, current_weight, loo)
+    calibration = calibrate(samples, audio.label_map, weight, current_weight, loo, voice_prior)
     recommendations += _confidence(loo, labels, config)
     recommendations += _speech(samples, config, profile)
     calibration = Calibration(**{**calibration.to_api(), "profile": profile})
@@ -100,9 +107,12 @@ def _voice_weight(
     labels: Sequence[str],
     config: AppConfig,
     current: float,
+    voice_prior: Mapping[str, float] | None = None,
 ) -> tuple[float, list[Scores], list[Recommendation], dict[str, float]]:
     label_map = config.audio_emotion.label_map
-    scored = {w: loo_scores(samples, label_map, w) for w in sorted({*WEIGHTS, current})}
+    scored = {
+        w: loo_scores(samples, label_map, w, voice_prior) for w in sorted({*WEIGHTS, current})
+    }
     accuracy = {w: accuracy_of(s, labels) or 0.0 for w, s in scored.items()}
     tested = {f"{w:.1f}": round(a, 3) for w, a in accuracy.items()}
     best = max(accuracy.values())

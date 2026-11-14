@@ -9,8 +9,10 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol
+from urllib.parse import unquote
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket
+import numpy as np
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
@@ -38,6 +40,7 @@ from emotion_overlay.pipeline import PipelineEvents
 from emotion_overlay.server.calibration import CalibrationController
 from emotion_overlay.server.display import DisplayState
 from emotion_overlay.server.hub import Hub
+from emotion_overlay.server.longform import MAX_MEDIA_BYTES, LongformController
 from emotion_overlay.server.security import install_security
 from emotion_overlay.settings import (
     SettingsError,
@@ -66,6 +69,10 @@ class AudioEngine(Protocol):
     def set_calibration_listener(
         self, listener: Callable[[Scores, Scores, SpeechStats], None] | None
     ) -> None: ...
+    def set_sentence_observer(
+        self, observer: Callable[[np.ndarray, str, Scores, Scores], None] | None
+    ) -> None: ...
+    def score_sentence(self, audio: np.ndarray) -> tuple[str, Scores, Scores]: ...
     def status(self) -> dict[str, Any]: ...
 
 
@@ -129,6 +136,18 @@ class ImageUpdateRequest(BaseModel):
     original_name: str | None = Field(None, max_length=200)  # rename (display only)
 
 
+class LongformLinkRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+
+
+class LongformAnalyseRequest(BaseModel):
+    track: int = 0
+
+
+class LongformLabelRequest(BaseModel):
+    label: str | None  # an emotion, "not_me", or None (not reviewed)
+
+
 class ImageFromUrlRequest(BaseModel):
     url: str
     emotion: str
@@ -157,6 +176,7 @@ def create_app(
     gpu_probe: Callable[[], GpuInfo] = gpu_info,
     obs_factory: Callable[[ObsConfig, Callable[[dict[str, Any]], None]], ObsController]
     | None = None,
+    longform_options: dict[str, Any] | None = None,  # tests: speech_prob, check_host
 ) -> FastAPI:
     store = ImageStore(config.data_dir, config.uploads.max_bytes, config.uploads.max_pixels)
     hub = Hub()
@@ -313,6 +333,9 @@ def create_app(
         config, CalibrationStore(config.data_dir), engine, hub.publish, apply_patch
     )
     hub.publish(calibration.message())
+    longform = LongformController(
+        config, engine, calibration, hub.publish, **(longform_options or {})
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -330,6 +353,7 @@ def create_app(
                 obs.stop()
             if hotkeys:
                 hotkeys.stop()
+            longform.close()
             if engine:
                 engine.stop()
 
@@ -778,6 +802,86 @@ def create_app(
     @app.delete("/api/calibration")
     def delete_calibration() -> dict[str, Any]:
         return calibration.clear()
+
+    # --- long-form calibration ---------------------------------------------
+
+    def longform_call(action: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        try:
+            return action()
+        except CalibrationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/api/longform")
+    def get_longform() -> dict[str, Any]:
+        return longform.message(with_sentences=True)
+
+    @app.post("/api/longform/record")
+    def longform_record() -> dict[str, Any]:
+        return longform_call(longform.start_recording)
+
+    @app.post("/api/longform/stop")
+    def longform_stop() -> dict[str, Any]:
+        return longform_call(longform.stop_recording)
+
+    @app.post("/api/longform/upload")
+    async def longform_upload(request: Request) -> dict[str, Any]:
+        """The raw file as the request body (streamed to a temporary file, so a
+        multi-GB recording never sits in memory). Its name comes in X-File-Name."""
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > MAX_MEDIA_BYTES:
+            raise HTTPException(413, f"the file is larger than {MAX_MEDIA_BYTES // 1024**3} GB")
+        name = unquote(request.headers.get("x-file-name", ""))  # URI-encoded by the page
+        try:
+            path = longform.begin_upload(name)
+        except CalibrationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        size = 0
+        try:
+            with path.open("wb") as out:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > MAX_MEDIA_BYTES:
+                        raise HTTPException(
+                            413, f"the file is larger than {MAX_MEDIA_BYTES // 1024**3} GB"
+                        )
+                    await asyncio.to_thread(out.write, chunk)  # keep the loop free
+            if size == 0:
+                raise HTTPException(400, "the file is empty")
+        except HTTPException as exc:
+            longform.upload_failed(str(exc.detail))
+            raise
+        except Exception as exc:  # client went away, disk full...
+            longform.upload_failed(f"Upload failed: {exc}")
+            raise HTTPException(400, f"Upload failed: {exc}") from exc
+        return await asyncio.to_thread(longform.upload_done)
+
+    @app.post("/api/longform/link")
+    def longform_link(body: LongformLinkRequest) -> dict[str, Any]:
+        return longform_call(lambda: longform.start_link(body.url))
+
+    @app.post("/api/longform/analyse")
+    def longform_analyse(body: LongformAnalyseRequest) -> dict[str, Any]:
+        return longform_call(lambda: longform.analyse(body.track))
+
+    @app.post("/api/longform/calibrate")
+    def longform_calibrate() -> dict[str, Any]:
+        return longform_call(longform.calibrate)
+
+    @app.post("/api/longform/cancel")
+    def longform_cancel() -> dict[str, Any]:
+        return longform.cancel()
+
+    @app.put("/api/longform/sentences/{sentence_id}")
+    def longform_label(sentence_id: int, body: LongformLabelRequest) -> dict[str, Any]:
+        return longform_call(lambda: longform.set_label(sentence_id, body.label))
+
+    @app.get("/api/longform/sentences/{sentence_id}/audio")
+    def longform_audio(sentence_id: int) -> Response:
+        try:
+            data = longform.wav(sentence_id)
+        except CalibrationError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return Response(data, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
     # --- backup -----------------------------------------------------------
 

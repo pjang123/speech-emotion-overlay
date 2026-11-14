@@ -46,6 +46,8 @@ class CalibrationController:
         self._result: Personalization | None = None
         self._applied: list[Recommendation] = []
         self._error: str | None = None
+        # Set by the long-form controller: why a 14-line session can't start now.
+        self.blocked_by: Callable[[], str | None] = lambda: None
         self.saved = store.load(list(config.audio_emotion.label_map))
         if store.stale:
             self._error = (
@@ -62,11 +64,29 @@ class CalibrationController:
             raise CalibrationError("audio is disabled (started with --no-audio)")
         if not self._engine.status().get("listening", True):
             raise CalibrationError("start listening first")
+        if reason := self.blocked_by():
+            raise CalibrationError(reason)
         with self._lock:
             self._session = CalibrationSession()
             self._result = self._error = None
             self._applied = []
             self._engine.set_calibration_listener(self._on_sample)
+        return self._announce()
+
+    @property
+    def active(self) -> bool:
+        """A 14-line session is in progress."""
+        with self._lock:
+            return self._session is not None and not self._session.done
+
+    def offer(self, result: Personalization) -> dict[str, Any]:
+        """Show a result fitted elsewhere (a long recording) for the user to save."""
+        with self._lock:
+            if self._session is not None and not self._session.done:
+                raise CalibrationError("finish the 14-line calibration first")
+            self._stop_listening()
+            self._session, self._result, self._error = None, result, None
+            self._applied = []
         return self._announce()
 
     def skip(self) -> dict[str, Any]:

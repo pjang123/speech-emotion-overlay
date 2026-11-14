@@ -125,6 +125,14 @@
       <p id="calibration-msg" class="msg"></p>
     </section>
 
+    <section class="card" id="longform-card">
+      <h2>Calibrate from a long recording</h2>
+      <p class="hint">People sound different while actually playing than when reading lines: quieter, flatter, faster. This calibrates on your real speech instead. Record yourself while you play, or use a video or audio file of a past stream. The app finds every sentence, fixes obvious skews by itself (like the tone-of-voice model hearing calm game talk as "sad"), and then lets you check its guesses. The more sentences you check, the better it fits you. Your audio and words stay in memory only and are gone when you finish.</p>
+      <div id="longform"></div>
+      <p id="longform-msg" class="msg"></p>
+      <input id="longform-file" type="file" accept="video/*,audio/*,.mkv,.flv,.mov" hidden>
+    </section>
+
     <section class="card">
       <h2>Backup</h2>
       <p class="hint">Save all your images and settings as one zip, or restore one. Importing <strong>replaces</strong> everything currently set up.</p>

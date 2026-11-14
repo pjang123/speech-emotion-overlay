@@ -8,12 +8,17 @@ systematically over- or under-predicts a class for one person's voice and mic:
    makes everything sound "angry" to the voice model.
 2. final bias, on the fused scores: nudges each emotion up or down for this user.
 
-Biases are L2-regularised toward 0 and clipped, and classes with no recordings are
-left at 0, so a short session can't push the model anywhere extreme. Only score
-vectors are kept: no audio or transcripts are stored.
+Biases are L2-regularised toward 0 (or toward a starting correction, see
+`fit_bias`) and clipped, and classes with no recordings keep their starting value,
+so a short session can't push the model anywhere extreme. Only score vectors are
+kept: no audio or transcripts are stored.
+
+A calibration comes either from the 14 read lines ("lines") or from a long
+recording of natural speech ("long", see longform.py).
 
 The reported "after" accuracy is leave-one-out (each recording is scored by a fit
-that never saw it), so it isn't inflated by testing on the training data.
+that never saw it; cross-validated for long recordings), so it isn't inflated by
+testing on the training data.
 """
 
 import json
@@ -34,6 +39,9 @@ from emotion_overlay.emotions import EMOTIONS, Scores
 log = logging.getLogger(__name__)
 
 MAX_BIAS = 3.0
+SOURCES = ("lines", "long")
+MAX_LOO = 30  # leave-one-out up to this many lines, then FOLDS-fold cross-validation
+FOLDS = 10
 
 # Two lines per emotion, interleaved so the same emotion never comes twice in a row.
 LINES: dict[str, tuple[str, str]] = {
@@ -93,6 +101,8 @@ class Calibration:
     accuracy: dict[str, float | None] = field(default_factory=dict)
     # Measured speaking profile (see personalize.py); numbers only.
     profile: dict[str, Any] = field(default_factory=dict)
+    source: str = "lines"  # SOURCES
+    sentences: int = 0  # long recordings: sentences analysed (samples = reviewed ones)
 
     def to_api(self) -> dict[str, Any]:
         return asdict(self)
@@ -108,23 +118,30 @@ def fit_bias(
     l2: float = 0.1,
     steps: int = 400,
     lr: float = 0.5,
+    prior: Mapping[str, float] | None = None,
 ) -> dict[str, float]:
-    """Per-class log-space offsets minimising cross-entropy + l2 * |b|^2."""
+    """Per-class log-space offsets minimising cross-entropy + l2 * |b - prior|^2.
+
+    `prior` is a starting correction (e.g. the automatic one from a long recording):
+    the fit starts there, is pulled back toward it rather than toward 0, and classes
+    with no labelled examples keep it.
+    """
     index = {c: i for i, c in enumerate(classes)}
+    start = np.array([float((prior or {}).get(c, 0.0)) for c in classes])
     pairs = [(r, index[y]) for r, y in zip(rows, labels, strict=True) if y in index and r]
     if not pairs:
-        return {}
+        return {c: round(float(v), 4) for c, v in zip(classes, start, strict=True)} if prior else {}
     x = np.log(np.array([[max(r.get(c, 0.0), EPS) for c in classes] for r, _ in pairs]))
     y = np.array([i for _, i in pairs])
     onehot = np.eye(len(classes))[y]
-    active = onehot.any(axis=0)  # classes nobody recorded keep bias 0
-    b = np.zeros(len(classes))
+    active = onehot.any(axis=0)  # classes nobody recorded keep their starting value
+    b = start.copy()
     for _ in range(steps):
         z = x + b
         z -= z.max(axis=1, keepdims=True)
         p = np.exp(z)
         p /= p.sum(axis=1, keepdims=True)
-        grad = (p - onehot).mean(axis=0) + 2 * l2 * b
+        grad = (p - onehot).mean(axis=0) + 2 * l2 * (b - start)
         grad[~active] = 0.0
         b -= lr * grad
     b = np.clip(b, -MAX_BIAS, MAX_BIAS)
@@ -143,12 +160,18 @@ def _accuracy(predictions: Sequence[str | None], labels: Sequence[str]) -> float
 
 
 def _fit(
-    samples: Sequence[CalibrationSample], label_map: Mapping[str, Sequence[str]], weight: float
+    samples: Sequence[CalibrationSample],
+    label_map: Mapping[str, Sequence[str]],
+    weight: float,
+    voice_prior: Mapping[str, float] | None = None,
 ) -> tuple[dict[str, float], dict[str, float]]:
     voice_label = {e: label for label, targets in label_map.items() for e in targets}
     voiced = [s for s in samples if s.voice and s.label in voice_label]
     voice_bias = fit_bias(
-        [s.voice for s in voiced], [voice_label[s.label] for s in voiced], list(label_map)
+        [s.voice for s in voiced],
+        [voice_label[s.label] for s in voiced],
+        list(label_map),
+        prior=voice_prior,
     )
     fused = [score_utterance(s.text, s.voice, label_map, weight, voice_bias).fused for s in samples]
     final_bias = fit_bias(fused, [s.label for s in samples], EMOTIONS)
@@ -156,19 +179,28 @@ def _fit(
 
 
 def loo_scores(
-    samples: Sequence[CalibrationSample], label_map: Mapping[str, Sequence[str]], weight: float
+    samples: Sequence[CalibrationSample],
+    label_map: Mapping[str, Sequence[str]],
+    weight: float,
+    voice_prior: Mapping[str, float] | None = None,
 ) -> list[Scores]:
-    """Calibrated final scores for each line, from a fit that never saw that line."""
-    scores = []
-    for i, sample in enumerate(samples):
+    """Calibrated final scores for each line, from a fit that never saw that line.
+
+    Leave-one-out up to MAX_LOO lines; above that (long recordings, hundreds of
+    sentences) FOLDS-fold cross-validation, which is just as honest and much faster.
+    """
+    folds = len(samples) if len(samples) <= MAX_LOO else FOLDS
+    scores: list[Scores] = [{} for _ in samples]
+    for fold in range(folds):
+        held = [i for i in range(len(samples)) if i % folds == fold]
         voice_bias, final_bias = _fit(
-            [s for j, s in enumerate(samples) if j != i], label_map, weight
+            [s for j, s in enumerate(samples) if j % folds != fold], label_map, weight, voice_prior
         )
-        scores.append(
-            score_utterance(
+        for i in held:
+            sample = samples[i]
+            scores[i] = score_utterance(
                 sample.text, sample.voice, label_map, weight, voice_bias, final_bias
             ).final
-        )
     return scores
 
 
@@ -182,17 +214,19 @@ def calibrate(
     weight: float,
     baseline_weight: float | None = None,
     loo: Sequence[Scores] | None = None,
+    voice_prior: Mapping[str, float] | None = None,
 ) -> Calibration:
     """Fit at `weight`. "before" is measured at `baseline_weight` (the user's current
-    setting) without calibration; "after" is leave-one-out at `weight`."""
+    setting) without calibration; "after" is leave-one-out at `weight`. `voice_prior`
+    is a starting voice correction the fit refines (see fit_bias)."""
     if len(samples) < 4:
         raise CalibrationError("record at least 4 lines to calibrate")
     labels = [s.label for s in samples]
     voice_label = {e: label for label, targets in label_map.items() for e in targets}
     baseline = weight if baseline_weight is None else baseline_weight
     if loo is None:
-        loo = loo_scores(samples, label_map, weight)
-    voice_bias, final_bias = _fit(samples, label_map, weight)
+        loo = loo_scores(samples, label_map, weight, voice_prior)
+    voice_bias, final_bias = _fit(samples, label_map, weight, voice_prior)
 
     accuracy = {
         "text": _accuracy([_top(s.text) for s in samples], labels),
@@ -332,6 +366,8 @@ class CalibrationStore:
                     if k in ("text", "voice", "before", "after")
                 },
                 profile=_clean_profile(raw.get("profile")),
+                source=raw.get("source") if raw.get("source") in SOURCES else "lines",
+                sentences=max(0, int(raw.get("sentences", 0))),
             )
         except (OSError, ValueError, TypeError, AttributeError):
             log.exception("Ignoring unreadable %s", self._path)

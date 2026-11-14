@@ -13,6 +13,10 @@ Threads:
   the combined one replaces it when the voice is done, so a slow voice model never
   delays the first reaction.
 
+Long-form calibration can watch finished sentences (`set_sentence_observer`) without
+changing what's shown, and scores recordings through `score_sentence`; a lock keeps
+that from running speech-to-text or the text model at the same time as live speech.
+
 Results leave through `PipelineEvents` callbacks, which must be thread-safe.
 Transcripts are only logged at DEBUG level so they don't end up in console logs by default.
 """
@@ -45,6 +49,9 @@ Message = dict[str, Any]
 # Receives (text scores for this utterance alone, raw voice scores, how it was spoken)
 # during calibration.
 CalibrationListener = Callable[[Scores, Scores, SpeechStats], None]
+# Receives (audio, transcript, text scores of that sentence alone, raw voice scores)
+# for each finished sentence while a long-form calibration records; display unaffected.
+SentenceObserver = Callable[[np.ndarray, str, Scores, Scores], None]
 
 
 @dataclass(frozen=True)
@@ -89,6 +96,8 @@ class Pipeline:
         self._voice_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
         self._calibration: Calibration | None = None
         self._calibration_listener: CalibrationListener | None = None
+        self._sentence_observer: SentenceObserver | None = None
+        self._model_lock = threading.Lock()  # speech-to-text + text model, one user at a time
         self._status: Message = {"type": "status", "state": "idle", "message": "Not started"}
         self._dropped_blocks = 0
         self._listening = True  # runtime only: every start begins listening
@@ -204,6 +213,35 @@ class Pipeline:
         if isinstance(self._segmenter, UtteranceSegmenter):
             # A longer end-of-line pause keeps each prompt in one piece.
             self._segmenter.min_silence_override_ms = CALIBRATION_SILENCE_MS if listener else None
+
+    def set_sentence_observer(self, observer: SentenceObserver | None) -> None:
+        self._sentence_observer = observer
+
+    def score_sentence(self, audio: np.ndarray) -> tuple[str, Scores, Scores]:
+        """Score one sentence of a recording the way live speech is scored, but on its
+        own (no rolling window) and without touching the display. Thread-safe."""
+        if not self._booted.is_set():
+            raise RuntimeError("the models are still loading")
+        voice_job = None
+        if self._voice_ready():
+            voice_job = self._voice_pool.submit(self._voice.scores, audio)
+        text = self._transcribe(audio)
+        text_scores = self._sentence_scores(text)
+        voice = voice_job.result() if voice_job is not None else {}
+        return text, text_scores, voice
+
+    def _transcribe(self, audio: np.ndarray) -> str:
+        with self._model_lock:
+            return self._transcriber.transcribe(audio)
+
+    def _text_scores(self, text: str) -> Scores:
+        with self._model_lock:
+            return self._classifier.scores(text)
+
+    def _sentence_scores(self, text: str) -> Scores:
+        if not text:
+            return {}
+        return self._text_scores(plain_english(text) if self._config.classifier.slang else text)
 
     def status(self) -> Message:
         return {
@@ -369,7 +407,7 @@ class Pipeline:
     def _handle_interim(self, interim: Interim) -> None:
         cfg = self._config
         t_start = time.perf_counter()
-        text = self._transcriber.transcribe(interim.audio)
+        text = self._transcribe(interim.audio)
         if not text or not self._listening or self._calibration_listener is not None:
             return
         self._window.seconds = cfg.classifier.window_seconds
@@ -378,7 +416,7 @@ class Pipeline:
             window_text = plain_english(window_text)
         calibration = self._calibration
         breakdown = score_utterance(
-            self._classifier.scores(window_text),
+            self._text_scores(window_text),
             {},  # the voice model is too slow to run twice; the full sentence gets it
             cfg.audio_emotion.label_map,
             cfg.audio_emotion.weight,
@@ -421,7 +459,7 @@ class Pipeline:
             voice_job = self._voice_pool.submit(self._score_voice, utterance.audio)
 
         t_start = time.perf_counter()
-        text = self._transcriber.transcribe(utterance.audio)
+        text = self._transcribe(utterance.audio)
         t_asr = time.perf_counter()
         if not self._listening:
             return  # paused while this was being transcribed: drop it
@@ -445,7 +483,7 @@ class Pipeline:
                 window_text = self._window.text(time.monotonic())
             if cfg.classifier.slang:
                 window_text = plain_english(window_text)  # shown as what the model read
-            text_scores = self._classifier.scores(window_text)
+            text_scores = self._text_scores(window_text)
         t_classify = time.perf_counter()
 
         early_ms = None
@@ -464,6 +502,14 @@ class Pipeline:
                 log.exception("Voice scoring failed for this utterance")
         if not text_scores and not voice_raw:
             return  # nothing usable (e.g. a cough Whisper heard no words in)
+
+        observer = self._sentence_observer
+        if observer is not None and not listener:
+            try:
+                # Long-form calibration judges each sentence on its own, not the window.
+                observer(utterance.audio, text, self._sentence_scores(text), voice_raw)
+            except Exception:
+                log.exception("Long-form calibration failed to take a sentence")
 
         if listener:
             listener(

@@ -1,7 +1,8 @@
-"""Download an image (usually a GIF) from a link the user pasted.
+"""Download an image (usually a GIF), or a recording for long-form calibration,
+from a link the user pasted.
 
 This is the only place the app contacts the internet on the user's behalf, and
-only when they explicitly add an image from a link.
+only when they explicitly add an image or a recording from a link.
 
 Making a server fetch a URL is a classic SSRF risk, so:
 - only http/https, no credentials in the URL, no non-default ports below 1024
@@ -10,7 +11,8 @@ Making a server fetch a URL is a classic SSRF risk, so:
   local network, link-local/cloud-metadata addresses etc. are refused, and the
   check is repeated for every redirect;
 - the response is capped by bytes actually read, and the result still goes
-  through the normal image validation (Pillow, 4 formats) before it's stored.
+  through the normal image validation (Pillow, 4 formats) before it's stored;
+  recordings are streamed to a temporary file and only ever read as media.
 
 Tenor/Giphy *page* links are HTML, not images; for those, the page's `og:image`
 (the GIF itself) is followed, once.
@@ -27,13 +29,15 @@ import urllib.request
 from collections.abc import Callable
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.parse import unquote, urljoin, urlsplit
 
 MAX_HTML_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 5
 TIMEOUT_S = 10
-USER_AGENT = "EmotionOverlay/0.1 (+local overlay app; fetches one image on user request)"
+USER_AGENT = "EmotionOverlay/0.1 (+local overlay app; fetches one file on user request)"
+MEDIA_TIMEOUT_S = 30  # per read; big recordings take a while in total
+MEDIA_BLOCK = 1024 * 1024
 
 
 class FetchError(ValueError):
@@ -187,3 +191,65 @@ def name_from_page(page_url: str, file_name: str) -> str:
         return file_name
     extension = PurePosixPath(file_name).suffix or ".gif"
     return f"{words}{extension}"
+
+
+def _size(n: int) -> str:
+    return f"{n / 1024**3:g} GB" if n >= 1024**3 else f"{n / 1024**2:.0f} MB"
+
+
+def fetch_media(
+    url: str,
+    dest: BinaryIO,
+    max_bytes: int,
+    check_host: HostCheck = check_public_host,
+    on_progress: Callable[[int, int | None], None] = lambda done, total: None,
+    cancelled: Callable[[], bool] = lambda: False,
+) -> str:
+    """Stream a video/audio file into `dest`. Returns a display name for it.
+
+    Only direct file links work: a web page (YouTube, a Drive preview page...) is
+    refused with a hint, rather than scraped.
+    """
+    safe_url = check_url(url, check_host)
+    request = urllib.request.Request(  # noqa: S310 - scheme checked above
+        safe_url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "video/*,audio/*,application/octet-stream;q=0.9,*/*;q=0.5",
+        },
+    )
+    try:
+        with _opener(check_host).open(request, timeout=MEDIA_TIMEOUT_S) as response:
+            final_url = response.geturl()
+            content_type = (response.headers.get("Content-Type") or "").lower()
+            if content_type.startswith(("text/html", "application/xhtml")):
+                raise FetchError(
+                    "that link opens a web page, not a video or audio file. Use a direct "
+                    "download link (one that downloads the file when opened), or download "
+                    "the file and choose it instead"
+                )
+            length = response.headers.get("Content-Length")
+            total = int(length) if length and length.isdigit() else None
+            if total is not None and total > max_bytes:
+                raise FetchError(f"the file is larger than {_size(max_bytes)}")
+            done = 0
+            while block := response.read(MEDIA_BLOCK):
+                if cancelled():
+                    raise FetchError("cancelled")
+                done += len(block)
+                if done > max_bytes:
+                    raise FetchError(f"the file is larger than {_size(max_bytes)}")
+                dest.write(block)
+                on_progress(done, total)
+    except FetchError:
+        raise
+    except urllib.error.HTTPError as exc:
+        raise FetchError(f"the website answered {exc.code} {exc.reason}") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, FetchError):
+            raise reason from exc
+        raise FetchError(f"couldn't download the link ({reason})") from exc
+    if done == 0:
+        raise FetchError("the link gave an empty file")
+    return unquote(PurePosixPath(urlsplit(final_url).path).name)[:120] or "download"
