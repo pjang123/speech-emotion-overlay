@@ -11,7 +11,7 @@
 | **Listens to** | what you say (speech-to-text + a text emotion model) *and* how you say it (a tone-of-voice model) |
 | **Speed** | about 0.55 s after you stop talking on an NVIDIA GPU, about 0.8 s on a CPU. Long sentences can update before you pause |
 | **Runs on** | Windows, macOS (Apple Silicon) and Linux: [Windows guide](INSTALL-Windows.md), [macOS guide](INSTALL-macOS.md), [Linux guide](INSTALL-Linux.md). GPUs: NVIDIA; AMD Radeon and Apple Silicon too, but those two **aren't yet tested on real hardware** |
-| **Extras** | your own images and GIFs, effects, word triggers ("gg", "bruh"), slang, hotkeys, OBS scene and filter switching, calibration to your voice |
+| **Extras** | your own images and GIFs, effects, word triggers ("gg", "bruh"), slang, hotkeys (Windows), OBS scene and filter switching, calibration to your voice |
 
 **New here?** Start with the [Beginner's guide](#beginners-guide). Everything after it is reference you can dip into when you need it.
 
@@ -112,7 +112,7 @@ All optional.
 | **Calibration** (2 min, recommended) | Read 14 short lines in the mood shown. The app learns your voice and mic and suggests settings | **Calibration** box → **Start** |
 | **Long-recording calibration** | Tunes the app to how you *really* sound while playing, from a live session or a past stream's video | **Calibrate from a long recording** box ([details](#long-recording-calibration)) |
 | **Word triggers** | Show a picture for a few seconds when you say a word, like "gg" | **Word triggers** box |
-| **Hotkeys** | Keys that work in-game. **Ctrl+Alt+Shift+1–7** lock a mood, **+0** goes back to automatic | **Hotkeys** box |
+| **Hotkeys** (Windows) | Keys that work in-game. **Ctrl+Alt+Shift+1–7** lock a mood, **+0** goes back to automatic | **Hotkeys** box |
 | **Settings** | Fade style, reaction speed and more. **Reset to defaults** undoes everything | **Settings** box |
 | **Backup** | Save all pictures and settings in one file | **Backup** box → **Export setup** |
 
@@ -121,10 +121,11 @@ All optional.
 | Problem | Try this |
 |---|---|
 | The picture never changes | Check the **Live** box says **Speaking** when you talk; if not, pick another mic. If the top button says **Start listening**, click it |
-| OBS shows nothing | Is the black window still open? Does the mood have a picture (or a ★ default)? In OBS, right-click the source → **Refresh** |
+| OBS shows nothing | Is the black window (Terminal on a Mac) still open? Does the mood have a picture (or a ★ default)? In OBS, right-click the source → **Refresh** |
 | It picks the wrong mood | Calibrate. If calm talk often shows as sad, try the [long-recording calibration](#long-recording-calibration) |
 | "An Application Control policy has blocked this file" | That's Windows' Smart App Control: see [Troubleshooting](#troubleshooting) |
-| The black window shows an error and stops | Take a screenshot and check [Troubleshooting](#troubleshooting) |
+| Mac: it never says **Speaking** | Allow Terminal to use the microphone: see the [macOS guide](INSTALL-macOS.md#mac-problems) |
+| The black window (or Terminal) shows an error and stops | Take a screenshot and check [Troubleshooting](#troubleshooting) |
 
 ---
 
@@ -163,7 +164,7 @@ All optional.
 | ↳ AMD | Radeon RX 7000/9000. Windows needs Adrenalin 26.2.2 or newer; on Linux any GPU ROCm 7.2 supports. **Not yet tested on AMD hardware** |
 | ↳ Apple | Any Apple Silicon Mac, used automatically through Metal. **Not yet tested on a real Mac's GPU** |
 
-Python 3.11+ and [uv](https://docs.astral.sh/uv/) are used, but you don't need to install them first: the Windows launchers install uv, and uv installs Python.
+Python 3.11+ and [uv](https://docs.astral.sh/uv/) are used, but you don't need to install them first: the Windows and Mac launchers install uv, and uv installs Python (3.13, set in `.python-version`).
 
 ## Install from the command line
 
@@ -373,7 +374,7 @@ Settings live in `config.yaml` in the project folder. The setup page writes it, 
 audio:
   device: null              # input device index (older setting); the name below takes precedence
   device_name: null         # saved microphone, set by "Use this mic"
-  device_hostapi: null      # its audio system (e.g. Windows WASAPI, MME)
+  device_hostapi: null      # its audio system (e.g. Windows WASAPI, MME; Core Audio on a Mac)
 
 vad:                        # voice activity detection (Silero VAD)
   threshold: 0.5            # speech probability needed to count as speech (0.05-0.95)
@@ -487,7 +488,7 @@ data_dir: data              # images, triggers, calibration
 | `--self-test` | Load every model, run each once without a mic, then exit. A good first check |
 | `--log-level DEBUG` | Verbose logs, including transcripts and any network requests |
 
-The Windows launchers pass options on, for example `run-gpu.bat --self-test`.
+The launchers pass options on, for example `run-gpu.bat --self-test` on Windows or `bash run-mac.command --self-test` on a Mac.
 
 ## How it works
 
@@ -572,7 +573,7 @@ From the end of a sentence to the new emotion being decided. On top come the ove
 | CPU (16-thread Ryzen) | 400 ms | ~300–400 ms | ~500–850 ms, in parallel | ~0.7–0.8 s first reaction, ~0.8–1.3 s with voice |
 | GPU (RTX 5070) | 400 ms | ~110 ms (`large-v3-turbo`) | ~30–50 ms, in parallel | ~0.55 s |
 
-On the CPU the words-only result appears first and the voice result follows; on the GPU both arrive together. On a GPU the models use about 3.5 GB of video memory.
+On the CPU the words-only result appears first and the voice result follows; on the GPU both arrive together. On a GPU the models use about 3.5 GB of video memory. Speed on a Mac hasn't been measured on real hardware yet.
 
 </details>
 
