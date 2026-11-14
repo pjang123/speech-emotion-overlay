@@ -52,8 +52,8 @@ class DisplayState:
         self._tokens = 0
         self._update(force_new=True)
 
-    def tier(self, confidence: float) -> str:
-        return "strong" if confidence >= self._config.strong_threshold else "mild"
+    def tier(self, emotion: str, confidence: float) -> str:
+        return "strong" if confidence >= self._config.strong_threshold_for(emotion) else "mild"
 
     def apply(self, state: EmotionState, new_utterance: bool = False) -> dict[str, Any]:
         """Show a (possibly unchanged) state; `new_utterance` marks fresh classifier output."""
@@ -145,7 +145,7 @@ class DisplayState:
             return self._message()
 
     def _update(self, force_new: bool) -> None:
-        tier = self.tier(self._state.confidence)
+        tier = self.tier(self._state.emotion, self._state.confidence)
         pool = self._store.pool(self._state.emotion, self._config.fallbacks, tier)
         if force_new or self._image not in pool:
             previous = self._image
@@ -177,7 +177,9 @@ class DisplayState:
             "type": "state",
             "emotion": self._manual or self._state.emotion,
             "confidence": 1.0 if self._manual else round(self._state.confidence, 3),
-            "tier": "strong" if self._manual else self.tier(self._state.confidence),
+            "tier": "strong"
+            if self._manual
+            else self.tier(self._state.emotion, self._state.confidence),
             "reason": "manual" if self._manual else "held" if self._held else self._state.reason,
             "manual": self._manual,
             "held_image": self._held.original_name if self._held else None,

@@ -114,8 +114,20 @@ class AudioEmotionConfig(BaseModel):
         return value
 
 
+def _emotion_thresholds(value: dict[str, float], what: str) -> dict[str, float]:
+    for emotion, threshold in value.items():
+        if emotion not in EMOTIONS:
+            raise ValueError(f"unknown emotion '{emotion}' in {what}")
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(f"{what}.{emotion} must be between 0 and 1")
+    return value
+
+
 class StateConfig(BaseModel):
     confidence_threshold: float = Field(0.5, ge=0.0, le=1.0)
+    # Per-emotion overrides of confidence_threshold, e.g. {disgust: 0.7} makes disgust
+    # need a higher score than the rest. Emotions left out use confidence_threshold.
+    confidence_thresholds: dict[str, float] = Field(default_factory=dict)
     low_confidence: Literal["hold", "neutral"] = "hold"
     silence_timeout_s: float = Field(3.0, ge=0.5, le=600.0)
     # Stability (anti-flicker). The defaults switch on every window, i.e. all off.
@@ -123,6 +135,14 @@ class StateConfig(BaseModel):
     persist_windows: int = Field(1, ge=1, le=10)  # windows a new emotion must stay on top
     instant_switch_margin: float = Field(0.0, ge=0.0, le=1.0)  # lead that skips the wait; 0 = off
     min_display_s: float = Field(0.0, ge=0.0, le=60.0)
+
+    @field_validator("confidence_thresholds")
+    @classmethod
+    def _valid_thresholds(cls, value: dict[str, float]) -> dict[str, float]:
+        return _emotion_thresholds(value, "confidence_thresholds")
+
+    def threshold_for(self, emotion: str) -> float:
+        return self.confidence_thresholds.get(emotion, self.confidence_threshold)
 
 
 # Short animations the overlay can play when an emotion's image appears.
@@ -135,6 +155,7 @@ class DisplayConfig(BaseModel):
     rotation: Literal["random", "cycle"] = "random"
     new_image_each_utterance: bool = False
     strong_threshold: float = Field(0.85, ge=0.0, le=1.0)  # "strong" tier at or above this
+    strong_thresholds: dict[str, float] = Field(default_factory=dict)  # per-emotion overrides
     fallbacks: dict[str, str] = Field(default_factory=dict)
     effects: dict[str, str] = Field(default_factory=dict)  # emotion -> effect; none by default
 
@@ -147,6 +168,14 @@ class DisplayConfig(BaseModel):
             if effect not in EFFECTS:
                 raise ValueError(f"unknown effect '{effect}' (use {', '.join(EFFECTS)})")
         return value
+
+    @field_validator("strong_thresholds")
+    @classmethod
+    def _valid_thresholds(cls, value: dict[str, float]) -> dict[str, float]:
+        return _emotion_thresholds(value, "strong_thresholds")
+
+    def strong_threshold_for(self, emotion: str) -> float:
+        return self.strong_thresholds.get(emotion, self.strong_threshold)
 
     @field_validator("fallbacks")
     @classmethod

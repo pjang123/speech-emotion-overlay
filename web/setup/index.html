@@ -5,181 +5,301 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Emotion Overlay Setup</title>
   <link rel="stylesheet" href="/static/setup/setup.css">
+  <script src="/static/setup/theme.js"></script>
   <script type="module" src="/static/setup/setup.js"></script>
 </head>
 <body>
-  <header>
+  <header class="topbar">
     <h1>Emotion Overlay</h1>
-    <span id="conn" class="pill">connecting…</span>
-    <span id="engine" class="pill"></span>
+    <a id="now" class="now" href="#/live" title="What the overlay shows right now">
+      <span class="now-thumb"><img id="now-img" alt="" hidden></span>
+      <span id="now-emotion">neutral</span>
+    </a>
+    <span class="topbar-status">
+      <span id="conn" class="pill">connecting…</span>
+      <span id="engine" class="pill"></span>
+    </span>
+    <button id="theme-toggle" class="theme-toggle" type="button">
+      <!-- The icon is the theme a click switches to: a moon in light mode, a sun in dark mode. -->
+      <svg id="theme-moon" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg id="theme-sun" viewBox="0 0 24 24" aria-hidden="true" hidden><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2.5M12 20v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M1.5 12H4M20 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
+    </button>
     <button id="listen-toggle" class="listen" disabled>Stop listening</button>
   </header>
 
-  <main>
-    <section class="card">
-      <h2>Microphone</h2>
-      <p class="hint">Pick the mic you talk into. A dedicated input (not "Stereo Mix" or a desktop-audio device) keeps game audio out.</p>
-      <div class="row">
-        <select id="device" aria-label="Input device"></select>
-        <button id="device-apply">Use this mic</button>
-        <button id="device-refresh" class="secondary">Refresh list</button>
-      </div>
-      <p id="device-msg" class="msg"></p>
-    </section>
+  <div class="layout">
+    <nav class="sidebar" aria-label="Sections">
+      <a href="#/live" data-page="live">Live</a>
+      <p class="nav-group">Set up</p>
+      <a href="#/mic" data-page="mic">Microphone</a>
+      <a href="#/images" data-page="images">Images</a>
+      <a href="#/obs" data-page="obs">OBS</a>
+      <p class="nav-group">Extras</p>
+      <a href="#/words" data-page="words">Word triggers</a>
+      <a href="#/keys" data-page="keys">Hotkeys</a>
+      <p class="nav-group">Fine-tune</p>
+      <a href="#/calibrate" data-page="calibrate">Calibration</a>
+      <a href="#/settings" data-page="settings">Settings</a>
+    </nav>
 
-    <section class="card">
-      <h2>Processor</h2>
-      <p class="hint">Where the speech and emotion models run. A GPU (NVIDIA, AMD with ROCm, or an Apple Silicon Mac's) makes each sentence much faster to process. Switching reloads the models in the background; the overlay keeps working meanwhile.</p>
-      <div class="row">
-        <select id="compute" aria-label="Processor">
-          <option value="auto">Automatic (GPU if available)</option>
-          <option value="cuda">GPU</option>
-          <option value="cpu">CPU</option>
-          <option value="mixed" disabled>Mixed (set in config.yaml)</option>
-        </select>
-      </div>
-      <p id="compute-gpu" class="hint"></p>
-      <p id="compute-running" class="mono muted small"></p>
-      <p id="compute-msg" class="msg"></p>
-    </section>
-
-    <section class="card">
-      <h2>Live</h2>
-      <div class="live">
-        <div class="preview">
-          <img id="preview-img" alt="Current overlay image">
-          <span id="preview-empty">No image for this emotion yet</span>
+    <main>
+      <!-- ============================== Live ============================== -->
+      <div class="page" id="page-live">
+        <div id="getting-started" class="callout" hidden>
+          <div>
+            <strong>Getting started</strong>
+            <ol>
+              <li>Check your <a href="#/mic">microphone</a>.</li>
+              <li>Add <a href="#/images">images</a> for each emotion.</li>
+              <li>Add the overlay to <a href="#/obs">OBS</a>.</li>
+            </ol>
+          </div>
+          <button id="getting-started-close" class="icon" title="Hide" aria-label="Hide getting started">✕</button>
         </div>
-        <div class="live-info">
-          <p><span id="speaking" class="dot"></span> <span id="speaking-label">Silent</span></p>
-          <p class="current">
-            <span id="emotion">neutral</span>
-            <span id="confidence" class="muted"></span>
-            <span id="reason" class="tag"></span>
-          </p>
-          <div id="scores" class="scores"></div>
+
+        <section class="card">
+          <div class="live">
+            <div class="preview">
+              <img id="preview-img" alt="Current overlay image" hidden>
+              <span id="preview-empty">No image for this emotion yet</span>
+            </div>
+            <div class="live-info">
+              <p class="speaking"><span id="speaking" class="dot"></span> <span id="speaking-label">Silent</span></p>
+              <p class="current">
+                <span id="emotion">neutral</span>
+                <span id="confidence" class="muted"></span>
+              </p>
+              <p id="reason" class="tag"></p>
+              <div id="scores" class="scores"></div>
+              <p class="label">Last heard</p>
+              <p id="transcript" class="mono transcript">—</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Hold an emotion</h2>
+          <div id="manual-buttons" class="manual-buttons"></div>
+          <p id="manual-hint" class="hint after"></p>
+        </section>
+
+        <details class="card fold">
+          <summary>Technical details</summary>
           <p id="voice" class="mono muted small"></p>
-          <p class="label">Last transcript</p>
-          <p id="transcript" class="mono">—</p>
-          <p class="label">Classified window</p>
+          <p class="label">Text the emotion was judged on</p>
           <p id="window" class="mono muted">—</p>
           <p id="timings" class="mono muted small"></p>
-        </div>
+        </details>
       </div>
-      <div class="manual">
-        <p class="label">Hold an emotion</p>
-        <div id="manual-buttons" class="manual-buttons"></div>
-        <p id="manual-hint" class="hint"></p>
-      </div>
-    </section>
 
-    <section class="card">
-      <h2>Images</h2>
-      <p class="hint" id="image-hint">Add images per emotion: click "Add" or drop files on a box. GIFs work too, from a file, or from a link with "Link" (Tenor and Giphy page links included); you can also drag a GIF straight from another browser tab. Each GIF starts from its first frame whenever it appears. Click ★ to mark the default image, which is shown for any emotion with no images. The dropdown under each image sets its intensity: <strong>Mild</strong> and <strong>Strong</strong> images are picked by how confident the detection is, and <strong>Any</strong> works for both. Images for word triggers are in the <strong>Word triggers</strong> card below.</p>
-      <p id="image-msg" class="msg"></p>
-      <div id="emotions" class="emotions"></div>
-    </section>
+      <!-- ============================== Microphone ============================== -->
+      <div class="page" id="page-mic" hidden>
+        <section class="card">
+          <h2>Microphone</h2>
+          <p class="hint">Pick the mic you talk into. A dedicated input (not "Stereo Mix" or desktop audio) keeps game sound out.</p>
+          <div class="row">
+            <select id="device" aria-label="Input device"></select>
+            <button id="device-apply">Use this mic</button>
+            <button id="device-refresh" class="secondary">Refresh list</button>
+          </div>
+          <p id="device-msg" class="msg"></p>
+        </section>
 
-    <section class="card">
-      <h2>Word triggers</h2>
-      <p class="hint">Show a special image for a few seconds when you say a word or phrase, like "gg" or "let's go". Matching ignores capitals and only counts whole words, so "gg" won't fire on "eggs". Separate alternatives with commas. If a word doesn't fire, check how it's spelled in the Live panel's transcript.</p>
-      <div id="trigger-library"></div>
-      <h3 class="subhead">New trigger</h3>
-      <div class="trigger-form">
-        <input id="trigger-phrases" type="text" maxlength="400" placeholder="gg, good game" aria-label="Words or phrases">
-        <div id="trigger-image" aria-label="Image to show"></div>
-        <label class="inline">for <input id="trigger-duration" type="number" min="0.5" max="60" step="0.5" value="3"> s</label>
-        <button id="trigger-add">Add trigger</button>
+        <section class="card">
+          <h2>Processor</h2>
+          <p class="hint">Where the speech and emotion models run. A GPU makes each sentence much faster.</p>
+          <div class="row">
+            <select id="compute" aria-label="Processor">
+              <option value="auto">Automatic (GPU if available)</option>
+              <option value="cuda">GPU</option>
+              <option value="cpu">CPU</option>
+              <option value="mixed" disabled>Mixed (set in config.yaml)</option>
+            </select>
+          </div>
+          <p id="compute-gpu" class="hint after"></p>
+          <p id="compute-running" class="mono muted small"></p>
+          <p id="compute-msg" class="msg"></p>
+          <details class="more">
+            <summary>More about processors</summary>
+            <p>NVIDIA cards, AMD cards with ROCm and Apple Silicon Macs all work as a GPU. Switching reloads the models in the background; the overlay keeps working meanwhile.</p>
+          </details>
+        </section>
       </div>
-      <p id="trigger-msg" class="msg"></p>
-      <h3 class="subhead" id="triggers-head">Your triggers</h3>
-      <div id="triggers" class="triggers"></div>
-    </section>
 
-    <section class="card">
-      <div class="card-head">
-        <h2>Hotkeys</h2>
-        <button id="hotkeys-reset" class="secondary">Reset to defaults</button>
+      <!-- ============================== Images ============================== -->
+      <div class="page" id="page-images" hidden>
+        <section class="card">
+          <h2>Images</h2>
+          <p class="hint" id="image-hint">Add images or GIFs for each emotion: click <strong>Add</strong>, paste a <strong>Link</strong>, or drop files on a box.</p>
+          <details class="more">
+            <summary>More about images</summary>
+            <ul>
+              <li>Tenor and Giphy page links work, and you can drag a GIF straight from another browser tab.</li>
+              <li>Click ★ to make an image the <strong>default</strong>: it's shown for any emotion with no images of its own.</li>
+              <li>The dropdown under each image sets its intensity. <strong>Mild</strong> and <strong>Strong</strong> images are picked by how confident the detection is; <strong>Any</strong> works for both.</li>
+              <li>Each GIF starts from its first frame whenever it appears.</li>
+              <li>Images for word triggers are in <a href="#/words">Word triggers</a>.</li>
+            </ul>
+          </details>
+          <p id="image-msg" class="msg"></p>
+          <div id="emotions" class="emotions"></div>
+        </section>
       </div>
-      <p class="hint">Keys that work in any app, even while a game has focus. Click a key combination to change it, then press the new keys. Each one can hold an emotion, show any image (including your word-trigger images), fire a word trigger, or go back to automatic. A held emotion or image stays until you press its keys again or a "Back to automatic" key. Keys need Ctrl, Alt or Win so they don't block typing; F1–F24, Pause and Scroll Lock also work on their own, which suits a Stream Deck or macro pad. Windows only. These stay on this PC and aren't included in backups.</p>
-      <div class="row">
-        <label class="check"><input type="checkbox" id="hotkeys-enabled"> Hotkeys on</label>
-        <button id="hotkey-add">Add hotkey</button>
-      </div>
-      <p id="hotkeys-problem" class="msg error"></p>
-      <div id="hotkeys" class="hotkeys"></div>
-      <p id="hotkeys-msg" class="msg"></p>
-    </section>
 
-    <section class="card">
-      <div class="card-head">
-        <h2>Settings</h2>
-        <button id="settings-reset" class="secondary">Reset to defaults</button>
-      </div>
-      <p class="hint">Changes apply immediately, with no restart, and are saved to <code>config.yaml</code>.</p>
-      <p id="settings-msg" class="msg"></p>
-      <div id="settings" class="settings"></div>
-    </section>
+      <!-- ============================== OBS ============================== -->
+      <div class="page" id="page-obs" hidden>
+        <section class="card">
+          <h2>Add the overlay to OBS</h2>
+          <ol class="steps">
+            <li>In OBS, add a <strong>Browser</strong> source.</li>
+            <li>Paste this address as its URL, and set the width and height to your image size (e.g. 800 × 800).</li>
+            <li>Leave custom CSS empty: the background is already transparent.</li>
+          </ol>
+          <div class="row url-row">
+            <code id="overlay-url"></code>
+            <button id="copy-url">Copy</button>
+            <a id="open-overlay" class="button secondary" href="/overlay" target="_blank" rel="noopener">Open</a>
+          </div>
+          <p class="hint after">Keep this program running while you stream.</p>
+          <details class="more">
+            <summary>URL options</summary>
+            <p>Add <code>?fit=cover</code> to fill the source and crop, or <code>?label=1</code> to show the emotion name (handy for testing).</p>
+          </details>
+        </section>
 
-    <section class="card">
-      <h2>Calibration</h2>
-      <p class="hint">Read 14 short lines, each in the emotion shown. The app learns how <em>your</em> voice and mic sound, then recommends settings tuned to how you speak: your pauses, your volume, how expressive you are, and whether tone of voice helps for you. You choose which to apply. It takes about two minutes. Say each line naturally and pause after it; the next line appears by itself. Only numbers are kept, never your audio or words.</p>
-      <div id="calibration"></div>
-      <p id="calibration-msg" class="msg"></p>
-    </section>
-
-    <section class="card" id="longform-card">
-      <h2>Calibrate from a long recording</h2>
-      <p class="hint">People sound different while actually playing than when reading lines: quieter, flatter, faster. This calibrates on your real speech instead. Record yourself while you play, or use a video or audio file of a past stream. The app finds every sentence, fixes obvious skews by itself (like the tone-of-voice model hearing calm game talk as "sad"), and then lets you check its guesses. The more sentences you check, the better it fits you. Your audio and words stay in memory only and are gone when you finish.</p>
-      <div id="longform"></div>
-      <p id="longform-msg" class="msg"></p>
-      <input id="longform-file" type="file" accept="video/*,audio/*,.mkv,.flv,.mov" hidden>
-    </section>
-
-    <section class="card">
-      <h2>Backup</h2>
-      <p class="hint">Save all your images and settings as one zip, or restore one. Importing <strong>replaces</strong> everything currently set up.</p>
-      <div class="row">
-        <a class="button secondary" href="/api/export" download>Export setup</a>
-        <button id="import-btn" class="secondary">Import setup…</button>
-        <input id="import-file" type="file" accept=".zip,application/zip" hidden>
+        <section class="card">
+          <h2>Switch scenes and filters</h2>
+          <p class="hint">Let each emotion switch an OBS scene or turn on a filter.</p>
+          <details class="more">
+            <summary>How to connect</summary>
+            <p>In OBS 28 or newer: <strong>Tools → WebSocket Server Settings</strong>, tick <strong>Enable WebSocket server</strong>, and use <strong>Show Connect Info</strong> for the port and password. These settings stay on this PC and aren't included in backups.</p>
+          </details>
+          <div class="row obs-connection">
+            <label class="check"><input type="checkbox" id="obs-enabled"> Connect to OBS</label>
+            <input id="obs-host" type="text" aria-label="OBS address" placeholder="127.0.0.1">
+            <input id="obs-port" type="number" min="1" max="65535" aria-label="OBS port" placeholder="4455">
+            <input id="obs-password" type="password" aria-label="OBS password" autocomplete="off">
+            <button id="obs-save">Save</button>
+          </div>
+          <p id="obs-status" class="mono muted small"></p>
+          <div id="obs-mappings" hidden>
+            <label class="setting"><span class="setting-label">Toggle filters on</span><select id="obs-filter-source" aria-label="Source whose filters are toggled"></select></label>
+            <div id="obs-rows"></div>
+          </div>
+          <p id="obs-msg" class="msg"></p>
+        </section>
       </div>
-      <p id="backup-msg" class="msg"></p>
-    </section>
 
-    <section class="card">
-      <h2>Add to OBS</h2>
-      <ol class="steps">
-        <li>In OBS, add a <strong>Browser</strong> source.</li>
-        <li>Set the URL to the address below. Set width and height to your image size (e.g. 800 × 800).</li>
-        <li>Leave custom CSS empty. The background is already transparent.</li>
-        <li>Keep this program running while you stream.</li>
-      </ol>
-      <div class="row">
-        <code id="overlay-url"></code>
-        <button id="copy-url" class="secondary">Copy</button>
-        <a id="open-overlay" href="/overlay" target="_blank" rel="noopener">Open in new tab</a>
-      </div>
-      <p class="hint">Options: add <code>?fit=cover</code> to fill the source and crop, or <code>?label=1</code> to show the emotion name (handy for testing).</p>
-    </section>
+      <!-- ============================== Word triggers ============================== -->
+      <div class="page" id="page-words" hidden>
+        <section class="card">
+          <h2>Word triggers</h2>
+          <p class="hint">Show a special image for a few seconds when you say a word or phrase, like "gg" or "let's go".</p>
+          <details class="more">
+            <summary>How matching works</summary>
+            <ul>
+              <li>Capitals don't matter, and only whole words count, so "gg" won't fire on "eggs".</li>
+              <li>Separate alternatives with commas: <code>gg, good game</code>.</li>
+              <li>If a word doesn't fire, check how it was heard under <strong>Last heard</strong> on the <a href="#/live">Live</a> page.</li>
+            </ul>
+          </details>
+          <div class="new-trigger">
+            <p class="label">New trigger</p>
+            <div class="trigger-form">
+              <input id="trigger-phrases" type="text" maxlength="400" placeholder="gg, good game" aria-label="Words or phrases">
+              <div id="trigger-image" aria-label="Image to show"></div>
+              <label class="inline">for <input id="trigger-duration" type="number" min="0.5" max="60" step="0.5" value="3"> s</label>
+              <button id="trigger-add">Add</button>
+            </div>
+          </div>
+          <p id="trigger-msg" class="msg"></p>
+          <h3 class="subhead" id="triggers-head">Your triggers</h3>
+          <div id="triggers" class="triggers"></div>
+        </section>
 
-    <section class="card">
-      <h2>OBS scenes and filters</h2>
-      <p class="hint">Let the emotion switch OBS scenes or turn filters on and off. In OBS 28 or newer: <strong>Tools → WebSocket Server Settings</strong>, tick <strong>Enable WebSocket server</strong>, and use <strong>Show Connect Info</strong> for the port and password. These settings stay on this PC and aren't included in backups.</p>
-      <div class="row obs-connection">
-        <label class="check"><input type="checkbox" id="obs-enabled"> Connect to OBS</label>
-        <input id="obs-host" type="text" aria-label="OBS address" placeholder="127.0.0.1">
-        <input id="obs-port" type="number" min="1" max="65535" aria-label="OBS port" placeholder="4455">
-        <input id="obs-password" type="password" aria-label="OBS password" autocomplete="off">
-        <button id="obs-save">Save</button>
+        <section class="card">
+          <h2>Trigger images</h2>
+          <p class="hint">Images only used by word triggers and hotkeys, never for an emotion.</p>
+          <div id="trigger-library"></div>
+        </section>
       </div>
-      <p id="obs-status" class="mono muted small"></p>
-      <div id="obs-mappings" hidden>
-        <label class="setting"><span class="setting-label">Toggle filters on</span><select id="obs-filter-source" aria-label="Source whose filters are toggled"></select></label>
-        <div id="obs-rows"></div>
+
+      <!-- ============================== Hotkeys ============================== -->
+      <div class="page" id="page-keys" hidden>
+        <section class="card">
+          <div class="card-head">
+            <h2>Hotkeys</h2>
+            <button id="hotkeys-reset" class="secondary">Reset to defaults</button>
+          </div>
+          <p class="hint">Keys that work in any app, even while a game has focus. Click a key combination to change it.</p>
+          <details class="more">
+            <summary>More about hotkeys</summary>
+            <ul>
+              <li>Each one can hold an emotion, show any image (word-trigger images too), fire a word trigger, or go back to automatic.</li>
+              <li>A held emotion or image stays until you press its keys again or a "Back to automatic" key.</li>
+              <li>Keys need Ctrl, Alt or Win so they don't block typing. F1–F24, Pause and Scroll Lock also work on their own, which suits a Stream Deck or macro pad.</li>
+              <li>Windows only. Hotkeys stay on this PC and aren't included in backups.</li>
+            </ul>
+          </details>
+          <div class="row">
+            <label class="check"><input type="checkbox" id="hotkeys-enabled"> Hotkeys on</label>
+            <button id="hotkey-add">Add hotkey</button>
+          </div>
+          <p id="hotkeys-problem" class="msg error"></p>
+          <div id="hotkeys" class="hotkeys"></div>
+          <p id="hotkeys-msg" class="msg"></p>
+        </section>
       </div>
-      <p id="obs-msg" class="msg"></p>
-    </section>
-  </main>
+
+      <!-- ============================== Calibration ============================== -->
+      <div class="page" id="page-calibrate" hidden>
+        <section class="card">
+          <h2>Calibration</h2>
+          <p class="hint">Read 14 short lines, each in the emotion shown (about two minutes). The app learns how your voice and mic sound and recommends settings; you choose which to apply.</p>
+          <details class="more">
+            <summary>More about calibration</summary>
+            <p>Say each line naturally and pause after it; the next line appears by itself. It tunes the app to your pauses, your volume, how expressive you are, and whether tone of voice helps for you. Only numbers are kept, never your audio or words.</p>
+          </details>
+          <div id="calibration"></div>
+          <p id="calibration-msg" class="msg"></p>
+        </section>
+
+        <section class="card" id="longform-card">
+          <h2>Calibrate from a long recording</h2>
+          <p class="hint">People sound different while playing than when reading lines. This calibrates on your real speech: record yourself while you play, or use a past stream.</p>
+          <details class="more">
+            <summary>How it works</summary>
+            <p>The app finds every sentence, fixes obvious skews by itself (like the tone-of-voice model hearing calm game talk as "sad"), then lets you check its guesses. The more sentences you check, the better it fits you. Your audio and words stay in memory only and are gone when you finish.</p>
+          </details>
+          <div id="longform"></div>
+          <p id="longform-msg" class="msg"></p>
+          <input id="longform-file" type="file" accept="video/*,audio/*,.mkv,.flv,.mov" hidden>
+        </section>
+      </div>
+
+      <!-- ============================== Settings ============================== -->
+      <div class="page" id="page-settings" hidden>
+        <p class="page-intro">Changes apply immediately and are saved to <code>config.yaml</code>. <span id="settings-msg" class="msg inline-msg"></span></p>
+        <div id="settings" class="settings"></div>
+
+        <section class="card">
+          <h2>Backup</h2>
+          <p class="hint">Save all your images, word triggers and settings as one zip, or restore one. Importing <strong>replaces</strong> everything currently set up.</p>
+          <div class="row">
+            <a class="button secondary" href="/api/export" download>Export setup</a>
+            <button id="import-btn" class="secondary">Import setup…</button>
+            <input id="import-file" type="file" accept=".zip,application/zip" hidden>
+          </div>
+          <p id="backup-msg" class="msg"></p>
+        </section>
+
+        <section class="card">
+          <h2>Reset</h2>
+          <p class="hint">Put every setting on this page back to its default. Images, triggers, hotkeys and your microphone stay as they are.</p>
+          <button id="settings-reset" class="secondary danger">Reset settings to defaults</button>
+        </section>
+      </div>
+    </main>
+  </div>
 </body>
 </html>

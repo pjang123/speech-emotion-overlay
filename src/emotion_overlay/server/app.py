@@ -58,6 +58,18 @@ log = logging.getLogger(__name__)
 
 WEB_DIR = web_dir()
 
+# Pages and their scripts must always match: without this, a browser (or OBS) may
+# keep using a cached old page with the new script after an update. "no-cache"
+# still lets it reuse its copy when the ETag says it's unchanged.
+REVALIDATE = {"Cache-Control": "no-cache"}
+
+
+class _RevalidatedStaticFiles(StaticFiles):
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(REVALIDATE)
+        return response
+
 
 class AudioEngine(Protocol):
     def start(self) -> None: ...
@@ -361,7 +373,7 @@ def create_app(
         title="Emotion Overlay", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
     )
     install_security(app, config.server)
-    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+    app.mount("/static", _RevalidatedStaticFiles(directory=WEB_DIR), name="static")
 
     # --- pages ------------------------------------------------------------
 
@@ -371,11 +383,11 @@ def create_app(
 
     @app.get("/setup", include_in_schema=False)
     def setup_page() -> FileResponse:
-        return FileResponse(WEB_DIR / "setup" / "index.html")
+        return FileResponse(WEB_DIR / "setup" / "index.html", headers=REVALIDATE)
 
     @app.get("/overlay", include_in_schema=False)
     def overlay_page() -> FileResponse:
-        return FileResponse(WEB_DIR / "overlay" / "index.html")
+        return FileResponse(WEB_DIR / "overlay" / "index.html", headers=REVALIDATE)
 
     # --- api --------------------------------------------------------------
 

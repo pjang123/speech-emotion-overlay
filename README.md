@@ -70,19 +70,19 @@ No technical knowledge needed. This is written for Windows 10 and 11. On a Mac, 
 
 ### Step 3: Open the setup page
 
-In your web browser, go to **`127.0.0.1:8765/setup`**. This page controls everything. It only exists on your PC.
+In your web browser, go to **`127.0.0.1:8765/setup`**. This page controls everything. It only exists on your PC. The menu on the left (along the top on a phone) switches between its pages, and the picture at the top always shows what your overlay is showing.
 
 The first time, the bar at the top says **Loading…** while the models download. You can already add pictures (Step 5) meanwhile.
 
 ### Step 4: Choose your microphone
 
-In the **Microphone** box, pick your mic and click **Use this mic**. Say something: in the **Live** box the dot should light up with **Speaking**, and your words appear under **Last transcript**.
+On the **Microphone** page, pick your mic and click **Use this mic**. Say something: on the **Live** page the dot should light up with **Speaking**, and your words appear under **Last heard**.
 
 ### Step 5: Add your pictures
 
-The **Images** box has a square for each mood.
+The **Images** page has a box for each mood.
 
-1. Click **Add** on a square and pick files. You can also drag files onto it, or click **Link** and paste a GIF link (Giphy, Tenor…).
+1. Click **Add** on a box and pick files. You can also drag files onto it, or click **Link** and paste a GIF link (Giphy, Tenor…).
 2. Give **Neutral** at least one picture. That's your "normal" face, shown when you're calm or quiet.
 3. Click the **★** under your favourite picture to make it the **default**, used for any mood without its own picture.
 
@@ -91,7 +91,7 @@ Start with neutral and joy; add more whenever you like.
 ### Step 6: Put it on your stream (OBS)
 
 1. In OBS, under **Sources**, click **+** → **Browser**, name it, click **OK**.
-2. URL: `http://127.0.0.1:8765/overlay`
+2. URL: `http://127.0.0.1:8765/overlay` (the setup page's **OBS** page has a **Copy** button for it)
 3. Set **Width** and **Height** to your pictures' size (for example 800 × 800), click **OK**.
 4. Move and resize it like any other source.
 
@@ -99,7 +99,7 @@ The background is see-through. Without OBS, open `127.0.0.1:8765/overlay` in a b
 
 ### Step 7: Talk!
 
-About a second after you finish a sentence, the picture changes. Try "this is amazing, I love it!" for your joy picture. The **Live** box shows what was heard and how sure the app was.
+About a second after you finish a sentence, the picture changes. Try "this is amazing, I love it!" for your joy picture. The **Live** page shows what was heard and how sure the app was.
 
 **Next time:** double-click the same launcher and wait for the setup page line. Everything is remembered, and OBS reconnects on its own.
 
@@ -109,18 +109,18 @@ All optional.
 
 | | What it does | Where |
 |---|---|---|
-| **Calibration** (2 min, recommended) | Read 14 short lines in the mood shown. The app learns your voice and mic and suggests settings | **Calibration** box → **Start** |
-| **Long-recording calibration** | Tunes the app to how you *really* sound while playing, from a live session or a past stream's video | **Calibrate from a long recording** box ([details](#long-recording-calibration)) |
-| **Word triggers** | Show a picture for a few seconds when you say a word, like "gg" | **Word triggers** box |
-| **Hotkeys** (Windows) | Keys that work in-game. **Ctrl+Alt+Shift+1–7** lock a mood, **+0** goes back to automatic | **Hotkeys** box |
-| **Settings** | Fade style, reaction speed and more. **Reset to defaults** undoes everything | **Settings** box |
-| **Backup** | Save all pictures and settings in one file | **Backup** box → **Export setup** |
+| **Calibration** (2 min, recommended) | Read 14 short lines in the mood shown. The app learns your voice and mic and suggests settings | **Calibration** page → **Start calibration** |
+| **Long-recording calibration** | Tunes the app to how you *really* sound while playing, from a live session or a past stream's video | **Calibration** page → **Calibrate from a long recording** ([details](#long-recording-calibration)) |
+| **Word triggers** | Show a picture for a few seconds when you say a word, like "gg" | **Word triggers** page |
+| **Hotkeys** (Windows) | Keys that work in-game. **Ctrl+Alt+Shift+1–7** lock a mood, **+0** goes back to automatic | **Hotkeys** page |
+| **Settings** | Fade style, reaction speed, per-emotion tweaks and more. **Reset settings to defaults** undoes everything | **Settings** page |
+| **Backup** | Save all pictures and settings in one file | **Settings** page → **Export setup** |
 
 ## Quick fixes
 
 | Problem | Try this |
 |---|---|
-| The picture never changes | Check the **Live** box says **Speaking** when you talk; if not, pick another mic. If the top button says **Start listening**, click it |
+| The picture never changes | Check the **Live** page says **Speaking** when you talk; if not, pick another mic. If the top button says **Start listening**, click it |
 | OBS shows nothing | Is the black window (Terminal on a Mac) still open? Does the mood have a picture (or a ★ default)? In OBS, right-click the source → **Refresh** |
 | It picks the wrong mood | Calibrate. If calm talk often shows as sad, try the [long-recording calibration](#long-recording-calibration) |
 | "An Application Control policy has blocked this file" | That's Windows' Smart App Control: see [Troubleshooting](#troubleshooting) |
@@ -172,7 +172,7 @@ Pick your system below. Every way of installing works the same once it's running
 
 **Check an install** with the self-test, which loads every model, runs each once without the microphone, and names the step that fails: `run-cpu.bat --self-test` on Windows (or `run-gpu.bat` / `run-amd.bat`), `bash run-mac.command --self-test` on a Mac, or `uv run --extra cpu python -m emotion_overlay --self-test` on Linux (with your `--extra`).
 
-**Quick start once it's running:** open **http://127.0.0.1:8765/setup** → pick your mic → **Processor: Automatic** → add images (★ one as default) → calibrate → add the overlay to OBS and talk. The **Live** panel shows what was heard, the scores and the timings.
+**Quick start once it's running:** open **http://127.0.0.1:8765/setup** → pick your mic → **Processor: Automatic** → add images (★ one as default) → calibrate → add the overlay to OBS and talk. The **Live** page shows what was heard and the scores; **Technical details** there has the timings.
 
 ### Windows
 
@@ -194,7 +194,7 @@ Windows 10 or 11, 64-bit. The [Beginner's guide](#beginners-guide) walks through
 
 - **"An Application Control policy has blocked this file":** Smart App Control; see [Troubleshooting](#troubleshooting).
 - **The microphone list is empty, or nothing is heard:** **Settings → Privacy & security → Microphone** → turn on **Let desktop apps access your microphone**.
-- **"The GPU is not available"** (the Processor card says why): "PyTorch is CPU-only" means start with `run-gpu.bat` or `run-amd.bat` instead of `run-cpu.bat`. "No NVIDIA GPU…" or "No AMD GPU supported by ROCm…": update the graphics driver (AMD: Adrenalin 26.2.2+, RX 7000/9000 only) and restart the app.
+- **"The GPU is not available"** (**Processor**, on the Microphone page, says why): "PyTorch is CPU-only" means start with `run-gpu.bat` or `run-amd.bat` instead of `run-cpu.bat`. "No NVIDIA GPU…" or "No AMD GPU supported by ROCm…": update the graphics driver (AMD: Adrenalin 26.2.2+, RX 7000/9000 only) and restart the app.
 - **The console window closes straight away, or `uv` isn't found:** run the launcher from a terminal to read the error. If installing uv failed, install it from [the uv website](https://docs.astral.sh/uv/getting-started/installation/) and try again.
 - **Port 8765 is already in use:** set `server.port` in `config.yaml` to another number, and use it in OBS too.
 
@@ -270,8 +270,8 @@ Terminal=true
 <summary><strong>Linux problems</strong></summary>
 
 - **`OSError: PortAudio library not found`:** install PortAudio (step 1).
-- **The microphone list is empty or nothing is heard:** check the mic in your system's sound settings, then try the `pipewire`, `pulse` or `default` entries in the setup page's **Microphone** card. Flatpak or Snap terminals may not be allowed to use the mic; use a normal terminal.
-- **"The GPU is not available"** (the Processor card says why): "PyTorch is CPU-only" means you installed with `--extra cpu`; run `uv sync --extra gpu` (or `amd`) and start with the same option. "No NVIDIA GPU…": install NVIDIA's proprietary driver 580+ and check `nvidia-smi`. "No AMD GPU supported by ROCm…": join the `render` and `video` groups (step 4), log out and in, and check [AMD's ROCm compatibility list](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/).
+- **The microphone list is empty or nothing is heard:** check the mic in your system's sound settings, then try the `pipewire`, `pulse` or `default` entries on the setup page's **Microphone** page. Flatpak or Snap terminals may not be allowed to use the mic; use a normal terminal.
+- **"The GPU is not available"** (**Processor**, on the Microphone page, says why): "PyTorch is CPU-only" means you installed with `--extra cpu`; run `uv sync --extra gpu` (or `amd`) and start with the same option. "No NVIDIA GPU…": install NVIDIA's proprietary driver 580+ and check `nvidia-smi`. "No AMD GPU supported by ROCm…": join the `render` and `video` groups (step 4), log out and in, and check [AMD's ROCm compatibility list](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/).
 - **"faster-whisper can't use the GPU" in the log (NVIDIA):** expected unless NVIDIA's CUDA 12 cuBLAS and cuDNN are installed; Whisper then runs through PyTorch on the GPU, which is fast too.
 - **Port 8765 is already in use:** set `server.port` in `config.yaml`, and use the new port in OBS too.
 
@@ -316,14 +316,14 @@ Combine with `&`: `http://127.0.0.1:8765/overlay?fit=cover&label=1`. The overlay
 
 ## The setup page
 
-**http://127.0.0.1:8765/setup**. Everything on it applies immediately and is saved.
+**http://127.0.0.1:8765/setup**. Everything on it applies immediately and is saved. The menu on the left switches between its pages (**Live**, **Microphone**, **Images**, **OBS**, **Word triggers**, **Hotkeys**, **Calibration**, **Settings**); on a phone-sized window it's a tab bar along the top. The header always shows what the overlay is showing, so you can test triggers and hotkeys from any page. Longer explanations are folded under links like **More about images**. The page follows your system's light or dark mode; the moon/sun button in the header switches it, and that choice is remembered in this browser.
 
 <details open>
 <summary><strong>Microphone, Processor, Live</strong></summary>
 
 - **Microphone:** pick an input and click **Use this mic**. It's remembered by name and audio system, so plugging devices in or out doesn't change it. If it isn't connected, the page says so and the system default is used until it's back. **Stop listening** (top of the page) turns the mic off completely.
-- **Processor:** **Automatic (GPU if available)**, **GPU** or **CPU**. GPU means NVIDIA, AMD when started with `run-amd.bat` / `--extra amd` (untested), or an Apple Silicon Mac's GPU (untested on real hardware). The card shows which GPU was found (or why it can't be used) and where each model runs. Switching loads the models on the new device in the background while the current ones keep working. Not possible in the first seconds after starting, while models load.
-- **Live:** current emotion and image, whether you're speaking, the last transcript, the text the emotion model read, scores per emotion, the tone-of-voice result and timings. **Hold an emotion** keeps one on screen until you click **Automatic**; detection keeps running underneath. Word triggers still show over a held emotion.
+- **Processor:** **Automatic (GPU if available)**, **GPU** or **CPU**. GPU means NVIDIA, AMD when started with `run-amd.bat` / `--extra amd` (untested), or an Apple Silicon Mac's GPU (untested on real hardware). It shows which GPU was found (or why it can't be used) and where each model runs. Switching loads the models on the new device in the background while the current ones keep working. Not possible in the first seconds after starting, while models load.
+- **Live:** current emotion and image, whether you're speaking, scores per emotion and the last transcript (**Last heard**). **Technical details** adds the text the emotion model read, the tone-of-voice result and timings. **Hold an emotion** keeps one on screen until you click **Automatic**; detection keeps running underneath. Word triggers still show over a held emotion.
 
 </details>
 
@@ -331,7 +331,7 @@ Combine with `&`: `http://127.0.0.1:8765/overlay?fit=cover&label=1`. The overlay
 <summary><strong>Images and word triggers</strong></summary>
 
 - **Images:** PNG, JPEG, WebP or GIF, up to 10 MB and 4096 × 4096 pixels each. Upload, paste a link (Tenor/Giphy pages work) or drag one in from another tab.
-  - Each image belongs to an emotion. Images for word triggers go in **Trigger images**, in the **Word triggers** card; they're never shown for an emotion.
+  - Each image belongs to an emotion. Images for word triggers go in **Trigger images**, on the **Word triggers** page; they're never shown for an emotion.
   - **Tier:** **Any**, **Mild** or **Strong**. Strong shows at or above the Strong-tier threshold, Mild below. Without the needed tier, **Any** images are used, then whatever the emotion has.
   - **★ Default** is shown for emotions without images. Names are only for you; files are stored under random IDs.
 - **Word triggers:** one or more phrases, an image and a duration (0.5–60 s). Matching is whole-word and ignores case, punctuation and apostrophes ("G.G." matches "gg"). Stretched letters ("bruhhhh") and common slang spellings match too. Up to 50. **Test** shows one without saying it.
@@ -342,41 +342,44 @@ Combine with `&`: `http://127.0.0.1:8765/overlay?fit=cover&label=1`. The overlay
 
 | Setting | Default | What it does |
 |---|---|---|
+| **Detection** | | |
+| Minimum confidence | 0.5 | Below this, the detection counts as unsure |
+| When unsure | Keep current image | Keep the current image, or go to neutral |
+| Back to neutral after silence | 3 s | Show neutral after this much silence |
+| Update while talking | Automatic | Re-check while you're still talking: every 0.5 s on a GPU, 1 s on a CPU, a fixed interval, or off |
+| Understand slang | On | Read slang as plain English before judging the emotion |
 | **Display** | | |
 | Transition | Cross-fade | Cross-fade, cut or bounce between images |
 | Transition time | 300 ms | Length of the transition |
 | With several images | Pick randomly | Random (never the same twice in a row) or cycle in order |
 | New image every sentence | Off | Switch to another image of the same emotion each time you speak |
 | Strong-tier threshold | 0.85 | Strong images show at or above this confidence |
-| **Detection** | | |
-| Minimum confidence | 0.5 | Below this, the detection counts as unsure |
-| When unsure | Keep current image | Keep the current image, or go to neutral |
-| Back to neutral after silence | 3 s | Show neutral after this much silence |
-| Text window | 6 s | How much recent speech is judged together. 0 = only the last sentence |
-| Update while talking | Automatic | Re-check while you're still talking: every 0.5 s on a GPU, 1 s on a CPU, a fixed interval, or off |
-| Understand slang | On | Read slang as plain English before judging the emotion |
-| Pause that ends a sentence | 400 ms | Shorter reacts faster but may split sentences |
-| Longest chunk of speech | 6 s | Non-stop talking is judged in chunks this long |
-| Voice detection threshold | 0.5 | Higher ignores more background noise |
 | **Tone of voice** | | |
 | Use tone of voice | On | Turn the voice model on or off |
 | Voice weight | 0.25 | How much the voice counts against the words. 0 = words only, 1 = voice only |
-| **Stability (anti-flicker)** | | All off by default, so the image follows every sentence |
+| **Per emotion** (one table) | | |
+| Minimum, Strong at | Empty (general setting) | The emotion's own Minimum confidence and Strong-tier threshold, e.g. raise Minimum for an emotion that shows up too often |
+| Without images | Default image | The default image, or another emotion's images |
+| Effect | None | Shake, pulse, jump, tremble or droop when its image appears |
+| **Advanced → Speech detection** | | Folded away; rarely needs changing |
+| Text window | 6 s | How much recent speech is judged together. 0 = only the last sentence |
+| Pause that ends a sentence | 400 ms | Shorter reacts faster but may split sentences |
+| Longest chunk of speech | 6 s | Non-stop talking is judged in chunks this long |
+| Voice detection threshold | 0.5 | Higher ignores more background noise |
+| **Advanced → Stability (anti-flicker)** | | All off by default, so the image follows every sentence |
 | Smoothing | 1 (off) | Lower values average each new result with the previous ones |
 | Sentences before switching | 1 (off) | A new emotion must stay on top this many times in a row |
 | Instant-switch lead | 0 (off) | A new emotion that leads by this much switches at once anyway |
 | Minimum time on screen | 0 s (off) | Keep each emotion at least this long |
-| **Emotions without images** | Default image | Per emotion: the default image, or another emotion's images |
-| **Effects** | None | Per emotion: shake, pulse, jump, tremble or droop when its image appears |
 
-**Reset to defaults** restores all of these. Mic, images, triggers and calibration aren't affected.
+**Reset settings to defaults** (bottom of the Settings page) restores all of these. Mic, images, triggers and calibration aren't affected.
 
 > [!TIP]
 > Set the voice weight high only if calibration recommends it. A high weight lets the tone-of-voice model overrule your words, and it can mistake calm, low-energy talk for sadness.
 
 ### Backup
 
-**Export setup** saves images, word triggers and the Settings card as one zip. **Import setup…** checks a zip completely, then **replaces** everything with its contents. Calibration, hotkeys and OBS settings aren't included: they belong to one voice, mic and PC.
+On the Settings page. **Export setup** saves images, word triggers and settings as one zip. **Import setup…** checks a zip completely, then **replaces** everything with its contents. Calibration, hotkeys and OBS settings aren't included: they belong to one voice, mic and PC.
 
 ## Calibration
 
@@ -423,11 +426,11 @@ The app finds every sentence with the same voice detection it uses live, then tr
 - Filter by **Not checked yet**, **Guessed as emotional** or **All sentences**.
 - You don't have to check them all. **At least 8** lets the app also test the voice weight and measure accuracy on your real speech; 30 or more is better.
 
-**4. Calibrate.** Click **Calibrate**. The result appears in the **Calibration** box, with accuracy measured on the sentences you checked, each judged by a calibration fitted without it. Tick the recommended settings you want and save. You can keep checking sentences and click **Calibrate** again.
+**4. Calibrate.** Click **Calibrate**. The result appears in the **Calibration** section above it, with accuracy measured on the sentences you checked, each judged by a calibration fitted without it. Tick the recommended settings you want and save. You can keep checking sentences and click **Calibrate** again.
 
 ## Hotkeys and Stream Deck
 
-Global hotkeys work while another app (like a game) has focus. Set them up in the **Hotkeys** card; changes apply right away. Windows only.
+Global hotkeys work while another app (like a game) has focus. Set them up on the **Hotkeys** page; changes apply right away. Windows only.
 
 | | |
 |---|---|
@@ -472,7 +475,7 @@ Requests from web pages on other sites are refused (see [Security](#security)). 
 The emotion can switch OBS scenes and/or turn on filters, through the WebSocket server built into OBS 28+.
 
 1. In OBS: **Tools → WebSocket Server Settings**, tick **Enable WebSocket server**, and click **Show Connect Info** for the port and password.
-2. On the setup page, **OBS scenes and filters**: tick **Connect to OBS**, enter the port (usually 4455) and password, **Save**. The status line says when it's connected.
+2. On the setup page's **OBS** page, under **Switch scenes and filters**: tick **Connect to OBS**, enter the port (usually 4455) and password, **Save**. The status line says when it's connected.
 3. Per emotion, pick a scene, or leave it at "Don't switch".
 4. Filters: first add them to a source in OBS (for example a **Color Correction** filter called "Angry red" on the overlay source, turned off). Choose that source under **Toggle filters on**, then a filter per emotion. When an emotion shows, its filter turns on and the others on that source turn off.
 
@@ -480,7 +483,7 @@ OBS follows the emotion on screen, including a held one, but not word triggers. 
 
 ## Configuration file
 
-Settings live in `config.yaml` in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional. A few things can only be changed here, and need a restart: the models, devices (other than via the Processor card), the server address, upload limits and debug recording.
+Settings live in `config.yaml` in the project folder. The setup page writes it, so you rarely need to edit it. Every key is optional. A few things can only be changed here, and need a restart: the models, devices (other than via the setup page's Processor setting), the server address, upload limits and debug recording.
 
 <details>
 <summary><strong>All settings, with their defaults</strong></summary>
@@ -502,7 +505,7 @@ asr:                        # speech-to-text (Whisper)
   backend: auto             # auto | faster-whisper | transformers
   model: base.en            # used on the CPU; small.en is more accurate but ~3x slower
   gpu_model: large-v3-turbo # used when speech-to-text runs on the GPU
-  device: auto              # auto | cuda | cpu; cuda means any GPU: NVIDIA, AMD or Apple (the Processor card sets all three)
+  device: auto              # auto | cuda | cpu; cuda means any GPU: NVIDIA, AMD or Apple (the setup page's Processor setting sets all three)
   compute_type: int8        # faster-whisper precision
   language: en
   beam_size: 1              # higher is slower and slightly more accurate
@@ -531,6 +534,7 @@ audio_emotion:              # emotion from tone of voice
 
 state:                      # what is shown (see "Settings" above)
   confidence_threshold: 0.5
+  confidence_thresholds: {} # per-emotion overrides, e.g. {disgust: 0.7}
   low_confidence: hold      # hold | neutral
   silence_timeout_s: 3.0
   smoothing: 1.0            # 1 = off
@@ -544,6 +548,7 @@ display:
   rotation: random          # random | cycle
   new_image_each_utterance: false
   strong_threshold: 0.85
+  strong_thresholds: {}     # per-emotion overrides, e.g. {disgust: 0.95}
   fallbacks: {}             # e.g. {disgust: anger}: show anger's images for disgust if it has none
   effects: {}               # e.g. {anger: shake, joy: pulse}; also shake, jump, tremble, droop
 
@@ -556,7 +561,7 @@ server:
   host: 127.0.0.1           # keep on localhost; nothing here is meant to be reachable from a network
   port: 8765
 
-hotkeys:                    # Windows only; edited in the Hotkeys card, not in backups
+hotkeys:                    # Windows only; edited on the Hotkeys page, not in backups
   enabled: true
   bindings:                 # defaults: ctrl+alt+shift + 0 (automatic) and + 1..7 (the emotions)
   - keys: ctrl+alt+shift+0  # modifiers (ctrl, alt, shift, win) then one key, joined with +
@@ -740,7 +745,7 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 - If it blocks PyTorch in one environment, try the other launcher. The GPU environment's PyTorch can also run on the CPU: **Processor → CPU**.
 - `uv run pytest` can be blocked too; `uv run python -m pytest` works.
 
-**GPU not available.** The Processor card says why.
+**GPU not available.** **Processor** on the setup page's Microphone page says why.
 - "PyTorch is CPU-only": use `run-gpu.bat` or `run-amd.bat`, or `uv sync --extra gpu` (`--extra amd` on Linux). Keep that `--extra` on every `uv run`.
 - "No NVIDIA GPU" / "No AMD GPU supported by ROCm": the driver is missing or too old, or the card isn't supported. See your system's installation guide.
 

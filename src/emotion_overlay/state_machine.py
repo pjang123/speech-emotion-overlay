@@ -6,7 +6,8 @@ config, so settings edited on the setup page apply to the next window.
 
     raw scores -> smoothing (EMA) -> candidate (top score; ties keep current,
                                      then prefer neutral, then alphabetical)
-    candidate must: reach confidence_threshold
+    candidate must: reach its threshold (confidence_thresholds[emotion], else
+                        confidence_threshold)
                     AND stay on top for persist_windows OR lead by instant_switch_margin
                     AND current emotion shown for >= min_display_s (not applied to the
                         resting neutral after startup/silence)
@@ -85,7 +86,7 @@ class EmotionStateMachine:
         current_score = smoothed.get(current, 0.0)
         candidate, confidence = pick_candidate(smoothed, current)
 
-        if confidence < cfg.confidence_threshold:
+        if confidence < cfg.threshold_for(candidate):
             if cfg.low_confidence == "neutral":
                 self._clear_pending()
                 return self._request(NEUTRAL, confidence, "low_confidence", now)

@@ -22,7 +22,28 @@ const ui = {
 const TIER_LABELS = { any: "Any", mild: "Mild", strong: "Strong" };
 
 // Settings form definition. `path` is "section.key" in /api/settings.
+// Groups marked `advanced` are folded away under "Advanced" on the Settings page.
 const SETTINGS = [
+  {
+    title: "Detection",
+    fields: [
+      { path: "state.confidence_threshold", label: "Minimum confidence", type: "number", min: 0, max: 1, step: 0.05,
+        help: "Below this the detection counts as unsure. Can be set per emotion below." },
+      { path: "state.low_confidence", label: "When unsure", type: "select",
+        options: { hold: "Keep current image", neutral: "Go to neutral" } },
+      { path: "state.silence_timeout_s", label: "Back to neutral after silence (s)", type: "number",
+        min: 0.5, max: 600, step: 0.5 },
+      { path: "classifier.interim_s", label: "Update while talking", type: "select",
+        // A list, not an object: JS would put the integer-like keys first.
+        options: [["auto", "Automatic"], ["0", "Off"], ["0.5", "Every 0.5 s"], ["1", "Every 1 s"],
+          ["1.5", "Every 1.5 s"], ["2", "Every 2 s"], ["3", "Every 3 s"]],
+        toInput: (v) => (v === null ? "auto" : String(v)),
+        fromInput: (v) => (v === "auto" ? null : Number(v)),
+        help: "Lets the image change before you pause. Automatic: every 0.5 s on a GPU, 1 s on a CPU." },
+      { path: "classifier.slang", label: "Understand slang", type: "checkbox",
+        help: "Reads \"lol\" as \"haha\" and \"that was fire\" as \"that was amazing\"." },
+    ],
+  },
   {
     title: "Display",
     fields: [
@@ -38,25 +59,21 @@ const SETTINGS = [
     ],
   },
   {
-    title: "Detection",
+    title: "Tone of voice",
+    note: "A second model listens to how you sound, not just your words, e.g. to catch sarcasm or a laugh.",
     fields: [
-      { path: "state.confidence_threshold", label: "Minimum confidence", type: "number", min: 0, max: 1, step: 0.05,
-        help: "Below this the detection counts as unsure." },
-      { path: "state.low_confidence", label: "When unsure", type: "select",
-        options: { hold: "Keep current image", neutral: "Go to neutral" } },
-      { path: "state.silence_timeout_s", label: "Back to neutral after silence (s)", type: "number",
-        min: 0.5, max: 600, step: 0.5 },
+      { path: "audio_emotion.enabled", label: "Use tone of voice", type: "checkbox",
+        help: "The first time you turn this on it downloads a ~1.3 GB model." },
+      { path: "audio_emotion.weight", label: "Voice weight", type: "number", min: 0, max: 1, step: 0.05,
+        help: "0 = words only, 1 = voice only." },
+    ],
+  },
+  {
+    title: "Speech detection",
+    advanced: true,
+    fields: [
       { path: "classifier.window_seconds", label: "Text window (s)", type: "number", min: 0, max: 60, step: 1,
         help: "How much recent speech is judged together. 0 = only the last sentence." },
-      { path: "classifier.interim_s", label: "Update while talking", type: "select",
-        // A list, not an object: JS would put the integer-like keys first.
-        options: [["auto", "Automatic"], ["0", "Off"], ["0.5", "Every 0.5 s"], ["1", "Every 1 s"],
-          ["1.5", "Every 1.5 s"], ["2", "Every 2 s"], ["3", "Every 3 s"]],
-        toInput: (v) => (v === null ? "auto" : String(v)),
-        fromInput: (v) => (v === "auto" ? null : Number(v)),
-        help: "Re-checks your words while you're still talking, so the image can change before you pause. Automatic: every 0.5 s on a GPU, every 1 s on a CPU." },
-      { path: "classifier.slang", label: "Understand slang", type: "checkbox",
-        help: "Reads slang as plain English before judging the emotion, e.g. \"lol\" as \"haha\" and \"that was fire\" as \"that was amazing\"." },
       { path: "vad.min_silence_ms", label: "Pause that ends a sentence (ms)", type: "number",
         min: 50, max: 5000, step: 50, help: "Shorter reacts faster but may split sentences." },
       { path: "vad.max_utterance_s", label: "Longest chunk of speech (s)", type: "number", min: 1, max: 30, step: 0.5,
@@ -66,17 +83,8 @@ const SETTINGS = [
     ],
   },
   {
-    title: "Tone of voice",
-    note: "A second model listens to how you sound, not just your words, e.g. to catch sarcasm or a laugh.",
-    fields: [
-      { path: "audio_emotion.enabled", label: "Use tone of voice", type: "checkbox",
-        help: "The first time you turn this on it downloads a ~1.3 GB model." },
-      { path: "audio_emotion.weight", label: "Voice weight", type: "number", min: 0, max: 1, step: 0.05,
-        help: "How much the voice counts compared with the words. 0 = words only, 1 = voice only." },
-    ],
-  },
-  {
     title: "Stability (anti-flicker)",
+    advanced: true,
     note: "All off by default, so the image follows every sentence. Turn these on if it changes too often.",
     fields: [
       { path: "state.smoothing", label: "Smoothing", type: "number", min: 0.05, max: 1, step: 0.05,
@@ -519,8 +527,8 @@ function renderImages() {
     const isTrigger = emotion === "trigger";
     const thumbs = el("div", { className: "thumbs" }, ...mine.map(thumbnail));
     if (!mine.length) {
-      const hint = isTrigger ? "No trigger images yet. Click Add or Link, or drop files here." : "No images";
-      thumbs.append(el("p", { className: "muted small", textContent: hint }));
+      const hint = isTrigger ? "No trigger images yet. Click Add or Link, or drop files here." : "Drop images here";
+      thumbs.append(el("p", { className: "empty", textContent: hint }));
     }
 
     const card = el(
@@ -529,14 +537,7 @@ function renderImages() {
       el(
         "div",
         { className: "emotion-head" },
-        el(
-          "div",
-          {},
-          el("h3", { textContent: GROUP_LABELS[emotion] ?? emotion }),
-          ...(isTrigger
-            ? [el("p", { className: "muted small", textContent: "Only shown by word triggers and hotkeys, never for an emotion." })]
-            : []),
-        ),
+        el("h3", { textContent: isTrigger ? `${mine.length} image${mine.length === 1 ? "" : "s"}` : emotion }),
         el("div", { className: "head-buttons" }, add, link),
       ),
       thumbs,
@@ -564,6 +565,82 @@ function renderImages() {
   });
   $("emotions").replaceChildren(...cards.filter(([e]) => e !== "trigger").map(([, card]) => card));
   $("trigger-library").replaceChildren(...cards.filter(([e]) => e === "trigger").map(([, card]) => card));
+  renderGettingStarted();
+}
+
+// --- pages and first-run guide -----------------------------------------------------
+
+const GUIDE_KEY = "emotion-overlay.hide-getting-started";
+
+function renderGettingStarted() {
+  let dismissed = false;
+  try {
+    dismissed = localStorage.getItem(GUIDE_KEY) === "1";
+  } catch {
+    // storage blocked: just keep showing it until there are images
+  }
+  $("getting-started").hidden = dismissed || ui.images.some((img) => img.emotion !== "trigger");
+}
+
+function hideGettingStarted() {
+  try {
+    localStorage.setItem(GUIDE_KEY, "1");
+  } catch {
+    // not remembered; hidden for now
+  }
+  $("getting-started").hidden = true;
+}
+
+// --- light / dark ---------------------------------------------------------------
+// theme.js applied a saved choice before the page was drawn; without one the page
+// follows the system, and keeps following it until the toggle is clicked.
+
+const THEME_KEY = "emotion-overlay.theme";
+const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+function currentTheme() {
+  return document.documentElement.dataset.theme ?? (systemDark.matches ? "dark" : "light");
+}
+
+function renderThemeToggle() {
+  const dark = currentTheme() === "dark";
+  // The icon shows where a click goes. toggleAttribute, not .hidden: SVG elements
+  // have no `hidden` property, so assigning one would silently do nothing.
+  $("theme-sun").toggleAttribute("hidden", !dark);
+  $("theme-moon").toggleAttribute("hidden", dark);
+  const label = dark ? "Switch to light mode" : "Switch to dark mode";
+  $("theme-toggle").title = label;
+  $("theme-toggle").setAttribute("aria-label", label);
+}
+
+function toggleTheme() {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch {
+    // not remembered; applies until the page is reloaded
+  }
+  renderThemeToggle();
+}
+
+// Pages are addressed as #/name, so the hash never collides with an element id.
+function showPage(name) {
+  const page = $(`page-${name}`) ? name : "live";
+  for (const node of document.querySelectorAll(".page")) node.hidden = node.id !== `page-${page}`;
+  for (const link of document.querySelectorAll(".sidebar a")) {
+    const current = link.dataset.page === page;
+    if (current) {
+      link.setAttribute("aria-current", "page");
+      link.scrollIntoView({ block: "nearest", inline: "nearest" }); // the tab bar scrolls on phones
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  }
+}
+
+function route() {
+  showPage(location.hash.replace(/^#\/?/, ""));
 }
 
 async function addFromLink(emotion, url) {
@@ -732,40 +809,13 @@ function settingRow(label, input, help) {
   return el(
     "label",
     { className: `setting${input.type === "checkbox" ? " check" : ""}` },
-    el("span", { className: "setting-label", textContent: label }),
+    el(
+      "span",
+      { className: "setting-text" },
+      el("span", { className: "setting-label", textContent: label }),
+      ...(help ? [el("span", { className: "setting-help", textContent: help })] : []),
+    ),
     input,
-    ...(help ? [el("span", { className: "setting-help", textContent: help })] : []),
-  );
-}
-
-function fallbackGroup() {
-  // For each emotion: which other emotion's images to borrow when it has none.
-  const fallbacks = ui.settings.display.fallbacks;
-  const rows = ui.emotions
-    .filter((emotion) => emotion !== "neutral")
-    .map((emotion) => {
-      const choices = ui.emotions.filter((e) => e !== emotion);
-      const input = el(
-        "select",
-        {},
-        el("option", { value: "", textContent: "Default image" }),
-        ...choices.map((e) => el("option", { value: e, textContent: `${e} images` })),
-      );
-      input.value = fallbacks[emotion] ?? "";
-      input.addEventListener("change", () => {
-        const next = { ...fallbacks };
-        if (input.value) next[emotion] = input.value;
-        else delete next[emotion];
-        saveSettings({ display: { fallbacks: next } });
-      });
-      return settingRow(emotion, input);
-    });
-  return el(
-    "fieldset",
-    {},
-    el("legend", { textContent: "Emotions without images" }),
-    el("p", { className: "hint", textContent: "What to show when an emotion has no images of its own." }),
-    ...rows,
   );
 }
 
@@ -778,49 +828,123 @@ const EFFECT_NAMES = {
   droop: "Droop",
 };
 
-function effectsGroup() {
-  // For each emotion: a short animation the overlay plays when its image appears.
-  const effects = ui.settings.display.effects ?? {};
-  const rows = ui.emotions.map((emotion) => {
-    const input = el(
-      "select",
-      {},
-      ...Object.entries(EFFECT_NAMES).map(([v, label]) => el("option", { value: v, textContent: label })),
-    );
-    input.value = effects[emotion] ?? "";
-    input.addEventListener("change", () => {
-      const next = { ...effects };
-      if (input.value) next[emotion] = input.value;
-      else delete next[emotion];
-      saveSettings({ display: { effects: next } });
-    });
-    return settingRow(emotion, input);
+// Saves one emotion's entry in a per-emotion map (thresholds, fallbacks, effects);
+// an empty value removes it, so the general setting applies again.
+function saveEmotionEntry(section, key, emotion, value) {
+  const next = { ...(ui.settings[section][key] ?? {}) };
+  if (value === "") delete next[emotion];
+  else next[emotion] = value;
+  saveSettings({ [section]: { [key]: next } });
+}
+
+function thresholdInput(section, key, general, label, emotion) {
+  const overrides = ui.settings[section][key] ?? {};
+  const fallback = ui.settings[section][general];
+  const input = el("input", {
+    type: "number",
+    min: 0,
+    max: 1,
+    step: 0.05,
+    value: overrides[emotion] ?? "",
+    placeholder: String(fallback),
+    title: `${label} for ${emotion}. Empty = the general setting (${fallback}).`,
   });
-  return el(
-    "fieldset",
+  input.setAttribute("aria-label", `${label} for ${emotion}`);
+  input.addEventListener("change", () => {
+    if (input.value !== "" && Number.isNaN(Number(input.value))) return renderSettings();
+    saveEmotionEntry(section, key, emotion, input.value === "" ? "" : Number(input.value));
+  });
+  return input;
+}
+
+function labelledSelect(options, value, label, onChange) {
+  const input = select(options, value, onChange);
+  input.setAttribute("aria-label", label);
+  return input;
+}
+
+// One table for everything set per emotion: thresholds, what to show without
+// images, and the effect played when its image appears.
+function perEmotionCard() {
+  const { display } = ui.settings;
+  const rows = ui.emotions.map((emotion) => {
+    // Neutral has no fallback: it's what the default image stands for.
+    const fallback =
+      emotion === "neutral"
+        ? el("span", { className: "muted small", textContent: "Default image" })
+        : labelledSelect(
+            [["", "Default image"], ...ui.emotions.filter((e) => e !== emotion).map((e) => [e, `${e} images`])],
+            display.fallbacks[emotion] ?? "",
+            `What ${emotion} shows without images`,
+            (value) => saveEmotionEntry("display", "fallbacks", emotion, value),
+          );
+    const effect = labelledSelect(
+      Object.entries(EFFECT_NAMES),
+      display.effects?.[emotion] ?? "",
+      `Effect for ${emotion}`,
+      (value) => saveEmotionEntry("display", "effects", emotion, value),
+    );
+    return el(
+      "tr",
+      {},
+      el("th", { scope: "row", textContent: emotion }),
+      el("td", {}, thresholdInput("state", "confidence_thresholds", "confidence_threshold", "Minimum confidence", emotion)),
+      el("td", {}, thresholdInput("display", "strong_thresholds", "strong_threshold", "Strong-tier threshold", emotion)),
+      el("td", {}, fallback),
+      el("td", {}, effect),
+    );
+  });
+  const head = el(
+    "tr",
     {},
-    el("legend", { textContent: "Effects" }),
+    ...["Emotion", "Minimum", "Strong at", "Without images", "Effect"].map((text) =>
+      el("th", { scope: "col", textContent: text }),
+    ),
+  );
+  return el(
+    "section",
+    { className: "card" },
+    el("h2", { textContent: "Per emotion" }),
     el("p", {
       className: "hint",
       textContent:
-        "A short animation the overlay plays when an emotion's image appears. Try one with the Hold an emotion buttons while OBS is open.",
+        "Empty boxes use the general setting, shown greyed out. Raise Minimum for an emotion that shows up too often, or lower it for one that rarely does.",
     }),
-    ...rows,
+    el(
+      "div",
+      { className: "table-scroll" },
+      el("table", { className: "per-emotion" }, el("thead", {}, head), el("tbody", {}, ...rows)),
+    ),
+    el("p", {
+      className: "hint after small",
+      textContent:
+        "Without images: what to show when the emotion has no images of its own. Effect: a short animation when its image appears; try one with Hold an emotion on the Live page.",
+    }),
+  );
+}
+
+function settingsGroup(group, nested = false) {
+  return el(
+    nested ? "div" : "section",
+    { className: nested ? "sub-group" : "card" },
+    el(nested ? "h3" : "h2", { textContent: group.title }),
+    ...(group.note ? [el("p", { className: "hint", textContent: group.note })] : []),
+    el("div", { className: "setting-list" }, ...group.fields.map((f) => settingRow(f.label, settingInput(f), f.help))),
   );
 }
 
 function renderSettings() {
   if (!ui.settings) return;
-  const groups = SETTINGS.map((group) =>
-    el(
-      "fieldset",
-      {},
-      el("legend", { textContent: group.title }),
-      ...(group.note ? [el("p", { className: "hint", textContent: group.note })] : []),
-      ...group.fields.map((f) => settingRow(f.label, settingInput(f), f.help)),
-    ),
+  const basic = SETTINGS.filter((g) => !g.advanced).map((g) => settingsGroup(g));
+  // Re-rendered after every save, so remember whether Advanced was open.
+  const advanced = el(
+    "details",
+    { className: "card fold", open: Boolean(ui.advancedOpen) },
+    el("summary", { textContent: "Advanced: speech detection and anti-flicker" }),
+    ...SETTINGS.filter((g) => g.advanced).map((g) => settingsGroup(g, true)),
   );
-  $("settings").replaceChildren(...groups, fallbackGroup(), effectsGroup());
+  advanced.addEventListener("toggle", () => (ui.advancedOpen = advanced.open));
+  $("settings").replaceChildren(...basic, perEmotionCard(), advanced);
 }
 
 async function resetSettings() {
@@ -1498,7 +1622,7 @@ async function calibrateFromRecording() {
   const msg = await longformAction("/api/longform/calibrate");
   if (!msg) return;
   renderCalibration(msg);
-  flash("longform-msg", "Done. Your result is in the Calibration card above: check it and save.");
+  flash("longform-msg", "Done. Your result is under Calibration above: check it and save.");
   $("calibration").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -1532,6 +1656,10 @@ async function importSetup() {
 
 function renderState(msg) {
   $("emotion").textContent = msg.emotion;
+  // The header chip shows the overlay on every page, e.g. while testing a hotkey.
+  $("now-emotion").textContent = msg.trigger ? `“${msg.trigger}”` : msg.emotion;
+  $("now-img").hidden = !msg.image;
+  if (msg.image) $("now-img").src = msg.image;
   $("confidence").textContent = msg.confidence && !msg.manual ? `${Math.round(msg.confidence * 100)}%` : "";
   $("reason").textContent = msg.trigger
     ? `${msg.trigger_source === "hotkey" ? "hotkey image" : "word trigger"} “${msg.trigger}”`
@@ -1668,10 +1796,7 @@ async function loadManual() {
 
   const info = await api("/api/manual");
   renderManual(info.image_id ? "held" : info.emotion);
-  flash(
-    "manual-hint",
-    "Keeps showing that emotion until you press Automatic. To do this from any app, set up keys under Hotkeys below.",
-  );
+  flash("manual-hint", "Keeps showing that emotion until you press Automatic. Hotkeys can do this from any app.");
 }
 
 // --- hotkeys ----------------------------------------------------------------------
@@ -1783,11 +1908,11 @@ function defaultsFor(action) {
   if (action === "emotion") return { emotion: ui.emotions.includes("neutral") ? "neutral" : ui.emotions[0] };
   if (action === "image") {
     const id = firstImage();
-    if (!id) flash("hotkeys-msg", "Upload an image first (Images above).", true);
+    if (!id) flash("hotkeys-msg", "Add an image first, on the Images page.", true);
     return id ? { image_id: id, duration_s: null } : null;
   }
   if (action === "trigger") {
-    if (!ui.triggers.length) flash("hotkeys-msg", "Add a word trigger first (Word triggers above).", true);
+    if (!ui.triggers.length) flash("hotkeys-msg", "Add a word trigger first, on the Word triggers page.", true);
     return ui.triggers.length ? { trigger_id: ui.triggers[0].id } : null;
   }
   return {};
@@ -1893,7 +2018,7 @@ async function addHotkey() {
 async function testHotkey(index) {
   try {
     await api(`/api/hotkeys/${index}/press`, { method: "POST" });
-    flash("hotkeys-msg", "Done; check the Live preview.");
+    flash("hotkeys-msg", "Done; the image at the top shows what the overlay shows.");
   } catch (err) {
     flash("hotkeys-msg", err.message, true);
   }
@@ -1912,6 +2037,16 @@ async function resetHotkeys() {
 // --- init -----------------------------------------------------------------------
 
 async function init() {
+  route();
+  window.addEventListener("hashchange", () => {
+    route();
+    window.scrollTo(0, 0);
+  });
+  $("getting-started-close").addEventListener("click", hideGettingStarted);
+  renderThemeToggle();
+  $("theme-toggle").addEventListener("click", toggleTheme);
+  systemDark.addEventListener("change", renderThemeToggle); // the system switched while following it
+
   const overlayUrl = `${location.origin}/overlay`;
   $("overlay-url").textContent = overlayUrl;
   $("copy-url").addEventListener("click", async () => {
@@ -1953,8 +2088,15 @@ async function init() {
   ]);
 
   connect("/ws?debug=1", {
-    onOpen: () => setPill("conn", "connected", "ok"),
-    onClose: () => setPill("conn", "disconnected (retrying)", "bad"),
+    // Only worth showing when something's wrong.
+    onOpen: () => {
+      setPill("conn", "connected", "ok");
+      $("conn").hidden = true;
+    },
+    onClose: () => {
+      setPill("conn", "disconnected (retrying)", "bad");
+      $("conn").hidden = false;
+    },
     onMessage(msg) {
       if (msg.type === "state") renderState(msg);
       else if (msg.type === "status") renderStatus(msg);
