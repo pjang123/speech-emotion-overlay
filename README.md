@@ -10,7 +10,7 @@
 | **Emotions** | anger, disgust, fear, joy, neutral, sadness, surprise |
 | **Listens to** | what you say (speech-to-text + a text emotion model) *and* how you say it (a tone-of-voice model) |
 | **Speed** | about 0.55 s after you stop talking on an NVIDIA GPU, about 0.8 s on a CPU. Long sentences can update before you pause |
-| **Runs on** | Windows and Linux ([Windows guide](INSTALL-Windows.md), [Linux guide](INSTALL-Linux.md)). AMD Radeon GPUs are supported but **not yet tested on a real AMD card** |
+| **Runs on** | Windows, macOS (Apple Silicon) and Linux: [Windows guide](INSTALL-Windows.md), [macOS guide](INSTALL-macOS.md), [Linux guide](INSTALL-Linux.md). GPUs: NVIDIA; AMD Radeon and Apple Silicon too, but those two **aren't yet tested on real hardware** |
 | **Extras** | your own images and GIFs, effects, word triggers ("gg", "bruh"), slang, hotkeys, OBS scene and filter switching, calibration to your voice |
 
 **New here?** Start with the [Beginner's guide](#beginners-guide). Everything after it is reference you can dip into when you need it.
@@ -39,11 +39,11 @@
 
 ## Beginner's guide
 
-No technical knowledge needed. This is written for Windows 10 and 11. On Linux, follow the [Linux installation guide](INSTALL-Linux.md) instead of Steps 1 and 2, then carry on here from Step 3.
+No technical knowledge needed. This is written for Windows 10 and 11. On a Mac, follow the [macOS installation guide](INSTALL-macOS.md) instead of Steps 1 and 2; on Linux, the [Linux installation guide](INSTALL-Linux.md). Then carry on here from Step 3.
 
 **You'll need:**
 
-- A Windows PC and a microphone.
+- A Windows PC (or a Mac / Linux PC, see above) and a microphone.
 - About **3.5 GB** of free disk space (about 7 GB to use an NVIDIA graphics card, 10 GB or more for an AMD one).
 - Internet for the **first start only**: the app downloads its models once (about 2 GB).
 - [OBS Studio](https://obsproject.com/) to show the pictures on stream. A browser tab works too.
@@ -155,23 +155,24 @@ All optional.
 
 | | |
 |---|---|
-| **System** | Windows 10/11, or 64-bit Linux (x86-64). Developed on Windows; CPU and NVIDIA tested on Ubuntu 26.04, where everything except global hotkeys works. macOS untested |
+| **System** | Windows 10/11; macOS 14+ on Apple Silicon (M1 or newer; not Intel Macs); or 64-bit Linux (x86-64). Developed on Windows. Tested on Ubuntu 26.04 (CPU and NVIDIA) and on GitHub's Apple Silicon Macs (CPU). Global hotkeys are Windows-only |
 | **Microphone** | A dedicated input works best. "Stereo Mix" or desktop-audio devices pick up game sound too |
 | **Disk space** | About 3.5 GB; about 7 GB with NVIDIA support, 10 GB or more with AMD. Mostly the models, downloaded on first start |
 | **Graphics card** (optional) | Faster, and a more accurate speech model. About 4 GB of video memory is enough |
 | ↳ NVIDIA | GTX 10 series or newer, driver 580 or newer |
 | ↳ AMD | Radeon RX 7000/9000. Windows needs Adrenalin 26.2.2 or newer; on Linux any GPU ROCm 7.2 supports. **Not yet tested on AMD hardware** |
+| ↳ Apple | Any Apple Silicon Mac, used automatically through Metal. **Not yet tested on a real Mac's GPU** |
 
 Python 3.11+ and [uv](https://docs.astral.sh/uv/) are used, but you don't need to install them first: the Windows launchers install uv, and uv installs Python.
 
 ## Install from the command line
 
-Step-by-step guides, including updating and uninstalling: **[Windows](INSTALL-Windows.md)** (double-click a launcher) and **[Linux](INSTALL-Linux.md)** (PortAudio, uv, then `uv sync`).
+Step-by-step guides, including updating and uninstalling: **[Windows](INSTALL-Windows.md)** (double-click a launcher), **[macOS](INSTALL-macOS.md)** (`run-mac.command`) and **[Linux](INSTALL-Linux.md)** (PortAudio, uv, then `uv sync`).
 
 With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed, in the app's folder:
 
 ```sh
-uv sync && uv run python -m emotion_overlay                               # CPU (Windows)
+uv sync && uv run python -m emotion_overlay                               # CPU (Windows), or a Mac (GPU included)
 uv sync --extra cpu && uv run --extra cpu python -m emotion_overlay       # CPU (Linux)
 uv sync --extra gpu && uv run --extra gpu python -m emotion_overlay       # NVIDIA GPU
 uv sync --extra amd && uv run --extra amd python -m emotion_overlay       # AMD GPU, Linux only (untested)
@@ -205,7 +206,7 @@ Combine with `&`: `http://127.0.0.1:8765/overlay?fit=cover&label=1`. The overlay
 <summary><strong>Microphone, Processor, Live</strong></summary>
 
 - **Microphone:** pick an input and click **Use this mic**. It's remembered by name and audio system, so plugging devices in or out doesn't change it. If it isn't connected, the page says so and the system default is used until it's back. **Stop listening** (top of the page) turns the mic off completely.
-- **Processor:** **Automatic (GPU if available)**, **GPU** or **CPU**. GPU means NVIDIA, or AMD when started with `run-amd.bat` / `--extra amd` (untested). The card shows which GPU was found (or why it can't be used) and where each model runs. Switching loads the models on the new device in the background while the current ones keep working. Not possible in the first seconds after starting, while models load.
+- **Processor:** **Automatic (GPU if available)**, **GPU** or **CPU**. GPU means NVIDIA, AMD when started with `run-amd.bat` / `--extra amd` (untested), or an Apple Silicon Mac's GPU (untested on real hardware). The card shows which GPU was found (or why it can't be used) and where each model runs. Switching loads the models on the new device in the background while the current ones keep working. Not possible in the first seconds after starting, while models load.
 - **Live:** current emotion and image, whether you're speaking, the last transcript, the text the emotion model read, scores per emotion, the tone-of-voice result and timings. **Hold an emotion** keeps one on screen until you click **Automatic**; detection keeps running underneath. Word triggers still show over a held emotion.
 
 </details>
@@ -385,7 +386,7 @@ asr:                        # speech-to-text (Whisper)
   backend: auto             # auto | faster-whisper | transformers
   model: base.en            # used on the CPU; small.en is more accurate but ~3x slower
   gpu_model: large-v3-turbo # used when speech-to-text runs on the GPU
-  device: auto              # auto | cuda | cpu; cuda means any GPU, AMD too (the Processor card sets all three)
+  device: auto              # auto | cuda | cpu; cuda means any GPU: NVIDIA, AMD or Apple (the Processor card sets all three)
   compute_type: int8        # faster-whisper precision
   language: en
   beam_size: 1              # higher is slower and slightly more accurate
@@ -506,7 +507,7 @@ flowchart LR
 ```
 
 1. **Sentences.** [Silero VAD](https://github.com/snakers4/silero-vad) scores each 32 ms of audio for speech. A sentence ends after a 400 ms pause; non-stop speech is cut every 6 s. While a sentence is going, the part so far is re-checked (words only) every 0.5 s of speech on a GPU, 1 s on a CPU.
-2. **Speech-to-text.** Whisper `base.en` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU, the larger and more accurate `large-v3-turbo` (about 110 ms per sentence there, about 5 s on a CPU), through faster-whisper if NVIDIA's CUDA 12 libraries are installed and otherwise 🤗 transformers (always on AMD, and the fallback when Windows blocks faster-whisper). Text Whisper thinks is noise is dropped; otherwise it "hears" words like "you" in silence.
+2. **Speech-to-text.** Whisper `base.en` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU, the larger and more accurate `large-v3-turbo` (about 110 ms per sentence there, about 5 s on a CPU), through faster-whisper if NVIDIA's CUDA 12 libraries are installed and otherwise 🤗 transformers (always on AMD and a Mac's GPU, and the fallback when Windows blocks faster-whisper). Text Whisper thinks is noise is dropped; otherwise it "hears" words like "you" in silence.
 3. **Emotion from the words.** [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) scores the last ~6 s of transcript, after slang is rewritten as plain English.
 4. **Emotion from the voice.** [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from [Vox-Profile](https://arxiv.org/abs/2505.14648): WavLM-large trained on MSP-Podcast (natural podcast speech, not actors), a simplified audio-only version of the top system in the INTERSPEECH 2025 speech emotion challenge. It's published for the authors' own code, so `classify/vox_profile.py` rebuilds its inference path and loads the weights directly. It runs alongside Whisper; if it's still busy when the words are scored, the words-only result shows first and is then refined.
 5. **Combining.** `final = (1 − w) · words + w · voice`, with `w = 0.25` by default. Calibration adds two small sets of per-emotion corrections in log space: one undoes a skew in the voice model for your voice and mic, one adjusts the combined result. The long-recording calibration's automatic step matches how often the voice model hears each emotion to how often your words express it, cutting an overused emotion by more than it boosts a rare one.
@@ -613,7 +614,7 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 ## Troubleshooting
 
 > [!TIP]
-> **Run the self-test first.** On Windows: `run-cpu.bat --self-test` (or with `run-gpu.bat` / `run-amd.bat`). Anywhere: `uv run python -m emotion_overlay --self-test`, with the `--extra` you installed with after `uv run`. It loads and runs every model and names the step that fails. The [Windows](INSTALL-Windows.md#windows-problems) and [Linux](INSTALL-Linux.md#linux-problems) guides cover system-specific problems.
+> **Run the self-test first.** On Windows: `run-cpu.bat --self-test` (or with `run-gpu.bat` / `run-amd.bat`). On a Mac: `bash run-mac.command --self-test`. Anywhere: `uv run python -m emotion_overlay --self-test`, with the `--extra` you installed with after `uv run`. It loads and runs every model and names the step that fails. The [Windows](INSTALL-Windows.md#windows-problems), [macOS](INSTALL-macOS.md#mac-problems) and [Linux](INSTALL-Linux.md#linux-problems) guides cover system-specific problems.
 
 <details open>
 <summary><strong>Common problems</strong></summary>
@@ -659,6 +660,7 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 - **Long-recording calibration's automatic step trusts your words.** It uses the text model as its reference, so it can't fix mistakes the words model makes, and in a mixed recording it also hears your friends unless you mark them **Not me**. Checking sentences fixes both.
 - **No prebuilt installer.** It would need code signing to get past Smart App Control, so the app runs from source.
 - **Hotkeys are Windows only.**
+- **Macs: Apple Silicon only, GPU untested.** Intel Macs can't run PyTorch's current builds. The Mac version passes its tests on GitHub's Apple Silicon machines, but those have no usable GPU, so the Metal path hasn't run on a real Mac yet; **Processor → CPU** is the fallback.
 - **AMD GPU support is untested** on an actual AMD card. Checked so far: on Windows, `run-amd.bat` installs AMD's PyTorch, and without an AMD card the app falls back to the CPU and passes its self-test; on Linux the `amd` install resolves. If you have a Radeon card, please report whether it works.
 - **Speech-to-text struggles with crosstalk,** especially the small CPU model (see [Accuracy and speed](#accuracy-and-speed)).
 
@@ -670,8 +672,11 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 ```
 run-cpu.bat, run-gpu.bat,  Windows launchers: CPU, NVIDIA GPU and AMD GPU (the GPU
   run-amd.bat                ones each in their own environment)
+run-mac.command            Mac launcher (Apple Silicon; uses the GPU when it can)
 INSTALL-Windows.md,        Installation guides
+  INSTALL-macOS.md,
   INSTALL-Linux.md
+.python-version            The Python version uv uses (3.13)
 LICENSE                    MIT licence
 pyproject.toml, uv.lock    Dependencies (extras: "gpu" = PyTorch for NVIDIA, "amd" = for AMD on Linux)
 src/emotion_overlay/
@@ -686,7 +691,7 @@ src/emotion_overlay/
   longform.py, media.py    Long-recording calibration; reading sound from video/audio files
   slang.py, triggers.py    Slang table and word triggers
   images.py, fetch.py      Image store and validation; safe downloads from links
-  compute.py               CPU/GPU detection (NVIDIA CUDA or AMD ROCm)
+  compute.py               CPU/GPU detection (NVIDIA CUDA, AMD ROCm or Apple Metal)
   hotkeys.py               Windows global hotkeys
   obs.py                   OBS remote control (obs-websocket v5)
   settings.py, config.py   Settings that can change live; the config file

@@ -167,7 +167,7 @@ async function applyDevice() {
 
 // --- processor (CPU / GPU) ---------------------------------------------------------
 
-const DEVICE_NAMES = { cuda: "GPU", cpu: "CPU" };
+const DEVICE_NAMES = { cuda: "GPU", mps: "GPU", cpu: "CPU" }; // mps = a Mac's GPU (Metal)
 
 function renderRunning(devices, switching) {
   if (!devices) return;

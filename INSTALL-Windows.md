@@ -1,6 +1,6 @@
 # Installing on Windows
 
-This guide covers Windows 10 and 11 (64-bit). For Linux, see [INSTALL-Linux.md](INSTALL-Linux.md). Once the app is running, the [README](README.md) explains how to set it up and use it.
+This guide covers Windows 10 and 11 (64-bit). For Linux, see [INSTALL-Linux.md](INSTALL-Linux.md), and for a Mac, [INSTALL-macOS.md](INSTALL-macOS.md). Once the app is running, the [README](README.md) explains how to set it up and use it.
 
 ## What you need
 

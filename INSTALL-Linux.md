@@ -1,6 +1,6 @@
 # Installing on Linux
 
-This guide covers 64-bit Linux on x86-64 (Ubuntu, Debian, Fedora, Arch and similar). For Windows, see [INSTALL-Windows.md](INSTALL-Windows.md). Once the app is running, the [README](README.md) explains how to set it up and use it.
+This guide covers 64-bit Linux on x86-64 (Ubuntu, Debian, Fedora, Arch and similar). For Windows, see [INSTALL-Windows.md](INSTALL-Windows.md), and for a Mac, [INSTALL-macOS.md](INSTALL-macOS.md). Once the app is running, the [README](README.md) explains how to set it up and use it.
 
 Tested so far on Ubuntu 26.04: the CPU version, and an NVIDIA GPU (GeForce RTX 5070, under WSL 2). AMD GPUs should work as described below, but haven't been tested.
 

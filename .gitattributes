@@ -1,3 +1,6 @@
 # cmd needs CRLF line endings in batch files (labels and goto can break with LF),
 # including in GitHub's "Download ZIP", which applies these rules.
 *.bat text eol=crlf
+# macOS/Linux shell scripts must keep LF line endings, or bash fails on the CRs.
+*.command text eol=lf
+*.sh text eol=lf

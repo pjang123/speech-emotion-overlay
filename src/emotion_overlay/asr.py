@@ -13,7 +13,7 @@ from typing import Protocol
 
 import numpy as np
 
-from emotion_overlay.compute import gpu_vendor, torch_device
+from emotion_overlay.compute import gpu_vendor, is_gpu, torch_device
 from emotion_overlay.config import AsrConfig
 from emotion_overlay.model_cache import load_cached
 
@@ -124,7 +124,7 @@ class TransformersWhisperTranscriber:
         # Half precision on the GPU (standard for Whisper, faster); full on the CPU. Set
         # explicitly: transformers otherwise uses the checkpoint's own type, and the
         # large-v3 family is stored in float16, which the CPU handles badly.
-        self._dtype = torch.float16 if device == "cuda" else torch.float32
+        self._dtype = torch.float16 if is_gpu(device) else torch.float32
         model = load_cached(
             WhisperForConditionalGeneration.from_pretrained, name, dtype=self._dtype
         )
@@ -174,12 +174,18 @@ class TransformersWhisperTranscriber:
 def load_transcriber(config: AsrConfig) -> Transcriber:
     """Pick backend and device. Order: faster-whisper on the GPU, Whisper via PyTorch on
     the GPU, faster-whisper on the CPU, Whisper via PyTorch on the CPU; the GPU ones
-    only if the GPU is wanted and usable."""
+    only if the GPU is wanted and usable. faster-whisper only knows NVIDIA GPUs, so on
+    a Mac's GPU ("mps") it's Whisper via PyTorch."""
     device = torch_device(config.device, "speech-to-text")
+    if device == "mps" and config.backend == "faster-whisper":
+        log.warning("faster-whisper can't use a Mac's GPU; running it on the CPU")
+        device = "cpu"
     # A bigger, more accurate model when on the GPU, where it's still fast.
     config = config.model_copy(
-        update={"model": config.gpu_model if device == "cuda" else config.model}
+        update={"model": config.gpu_model if is_gpu(device) else config.model}
     )
+    if device == "mps":
+        return TransformersWhisperTranscriber(config, "mps")
     if config.backend in ("auto", "faster-whisper") and device == "cuda":
         problem = faster_whisper_gpu_problem()
         if problem is None:

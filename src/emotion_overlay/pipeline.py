@@ -37,6 +37,7 @@ from emotion_overlay.audio.vad import SAMPLE_RATE, Utterance, UtteranceSegmenter
 from emotion_overlay.calibration import CALIBRATION_SILENCE_MS, Calibration, SpeechStats
 from emotion_overlay.classify.fusion import score_utterance
 from emotion_overlay.classify.window import TranscriptWindow
+from emotion_overlay.compute import is_gpu
 from emotion_overlay.config import INTERIM_CPU_S, INTERIM_GPU_S, AppConfig
 from emotion_overlay.debug_store import DebugRecorder
 from emotion_overlay.emotions import Scores
@@ -192,11 +193,11 @@ class Pipeline:
         value = self._config.classifier.interim_s
         if value is not None:
             return value
-        on_gpu = getattr(self._transcriber, "device", "cpu") == "cuda"
+        on_gpu = is_gpu(getattr(self._transcriber, "device", "cpu"))
         return INTERIM_GPU_S if on_gpu else INTERIM_CPU_S
 
     def devices(self) -> dict[str, str | None]:
-        """Where each model is running ('cpu'/'cuda'), None if not loaded."""
+        """Where each model is running ('cpu'/'cuda'/'mps'), None if not loaded."""
         return {
             "speech": getattr(self._transcriber, "device", None),
             "text": getattr(self._classifier, "device", None),
