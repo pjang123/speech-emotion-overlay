@@ -10,7 +10,7 @@
 | **Emotions** | anger, disgust, fear, joy, neutral, sadness, surprise |
 | **Listens to** | what you say (speech-to-text + a text emotion model) *and* how you say it (a tone-of-voice model) |
 | **Speed** | about 0.55 s after you stop talking on an NVIDIA GPU, about 0.8 s on a CPU. Long sentences can update before you pause |
-| **Runs on** | Windows, macOS (Apple Silicon) and Linux: [Windows guide](INSTALL-Windows.md), [macOS guide](INSTALL-macOS.md), [Linux guide](INSTALL-Linux.md). GPUs: NVIDIA; AMD Radeon and Apple Silicon too, but those two **aren't yet tested on real hardware** |
+| **Runs on** | Windows, macOS (Apple Silicon) and Linux: see [Installation](#installation). GPUs: NVIDIA; AMD Radeon and Apple Silicon too, but those two **aren't yet tested on real hardware** |
 | **Extras** | your own images and GIFs, effects, word triggers ("gg", "bruh"), slang, hotkeys (Windows), OBS scene and filter switching, calibration to your voice |
 
 **New here?** Start with the [Beginner's guide](#beginners-guide). Everything after it is reference you can dip into when you need it.
@@ -23,7 +23,7 @@
   - [Make it work better for you](#make-it-work-better-for-you)
   - [Quick fixes](#quick-fixes)
 - **Reference**
-  - [Features](#features) · [Requirements](#requirements) · [Install from the command line](#install-from-the-command-line)
+  - [Features](#features) · [Requirements](#requirements) · [Installation](#installation) (Windows, macOS, Linux)
   - [Add the overlay to OBS](#add-the-overlay-to-obs) · [The setup page](#the-setup-page)
   - [Calibration](#calibration) (quick and long-recording)
   - [Hotkeys and Stream Deck](#hotkeys-and-stream-deck) · [OBS scenes and filters](#obs-scenes-and-filters)
@@ -39,7 +39,7 @@
 
 ## Beginner's guide
 
-No technical knowledge needed. This is written for Windows 10 and 11. On a Mac, follow the [macOS installation guide](INSTALL-macOS.md) instead of Steps 1 and 2; on Linux, the [Linux installation guide](INSTALL-Linux.md). Then carry on here from Step 3.
+No technical knowledge needed. This is written for Windows 10 and 11. On a Mac, follow [Installation → macOS](#macos) instead of Steps 1 and 2; on Linux, [Installation → Linux](#linux). Then carry on here from Step 3.
 
 **You'll need:**
 
@@ -58,7 +58,7 @@ No technical knowledge needed. This is written for Windows 10 and 11. On a Mac, 
 ### Step 2: Start it
 
 > [!TIP]
-> Got a gaming graphics card? In step 1, use **`run-gpu.bat`** (NVIDIA) or **`run-amd.bat`** (AMD Radeon RX 7000/9000, not yet tested on a real card) instead. It reacts faster and understands speech better, but the first start downloads several GB more. The [Windows installation guide](INSTALL-Windows.md) helps you choose.
+> Got a gaming graphics card? In step 1, use **`run-gpu.bat`** (NVIDIA) or **`run-amd.bat`** (AMD Radeon RX 7000/9000, not yet tested on a real card) instead. It reacts faster and understands speech better, but the first start downloads several GB more. [Installation → Windows](#windows) helps you choose.
 
 1. Open the folder and double-click **`run-cpu.bat`**.
 2. If a blue "Windows protected your PC" box appears, click **More info**, then **Run anyway**.
@@ -124,7 +124,7 @@ All optional.
 | OBS shows nothing | Is the black window (Terminal on a Mac) still open? Does the mood have a picture (or a ★ default)? In OBS, right-click the source → **Refresh** |
 | It picks the wrong mood | Calibrate. If calm talk often shows as sad, try the [long-recording calibration](#long-recording-calibration) |
 | "An Application Control policy has blocked this file" | That's Windows' Smart App Control: see [Troubleshooting](#troubleshooting) |
-| Mac: it never says **Speaking** | Allow Terminal to use the microphone: see the [macOS guide](INSTALL-macOS.md#mac-problems) |
+| Mac: it never says **Speaking** | Allow Terminal to use the microphone: see [Installation → macOS](#macos) |
 | The black window (or Terminal) shows an error and stops | Take a screenshot and check [Troubleshooting](#troubleshooting) |
 
 ---
@@ -166,25 +166,140 @@ All optional.
 
 Python 3.11+ and [uv](https://docs.astral.sh/uv/) are used, but you don't need to install them first: the Windows and Mac launchers install uv, and uv installs Python (3.13, set in `.python-version`).
 
-## Install from the command line
+## Installation
 
-Step-by-step guides, including updating and uninstalling: **[Windows](INSTALL-Windows.md)** (double-click a launcher), **[macOS](INSTALL-macOS.md)** (`run-mac.command`) and **[Linux](INSTALL-Linux.md)** (PortAudio, uv, then `uv sync`).
+Pick your system below. Every way of installing works the same once it's running: the first start downloads about 2 GB of models (plus about 1.6 GB for the larger speech model the first time a GPU is used), and after that the app starts offline. When the console or terminal shows `Setup page: http://127.0.0.1:8765/setup`, open that address and carry on with the [Beginner's guide](#beginners-guide) from Step 3.
 
-With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed, in the app's folder:
+**Check an install** with the self-test, which loads every model, runs each once without the microphone, and names the step that fails: `run-cpu.bat --self-test` on Windows (or `run-gpu.bat` / `run-amd.bat`), `bash run-mac.command --self-test` on a Mac, or `uv run --extra cpu python -m emotion_overlay --self-test` on Linux (with your `--extra`).
+
+**Quick start once it's running:** open **http://127.0.0.1:8765/setup** → pick your mic → **Processor: Automatic** → add images (★ one as default) → calibrate → add the overlay to OBS and talk. The **Live** panel shows what was heard, the scores and the timings.
+
+### Windows
+
+Windows 10 or 11, 64-bit. The [Beginner's guide](#beginners-guide) walks through it; in short: download the ZIP from GitHub (**Code → Download ZIP**, then **Extract All…**) or `git clone https://github.com/pjang123/speech-emotion-overlay.git`, and double-click a launcher:
+
+| Runs on | Launcher | Disk space | Environment |
+|---|---|---|---|
+| The CPU (any PC) | `run-cpu.bat` | about 3.5 GB | `.venv` in the app's folder |
+| An NVIDIA graphics card | `run-gpu.bat` | about 7 GB | `%LOCALAPPDATA%\emotion-overlay\gpu-venv` (CUDA build of PyTorch) |
+| An AMD Radeon graphics card | `run-amd.bat` | 10 GB or more | `%LOCALAPPDATA%\emotion-overlay\amd-venv` (AMD's ROCm build, Python 3.12) |
+
+- **Graphics cards:** NVIDIA GTX 10 series or newer with driver 580+; AMD Radeon RX 7000/9000 with **Adrenalin 26.2.2 or newer** (AMD support is untested on real cards; if it fails, use `run-cpu.bat`). Intel graphics aren't supported. To see yours: **Ctrl+Shift+Esc** → **Performance** → **GPU**.
+- **"Windows protected your PC":** click **More info**, then **Run anyway**. It appears because the launchers aren't signed.
+- **The first start takes several minutes:** the launcher installs [uv](https://docs.astral.sh/uv/), which installs Python and everything else. Later starts take seconds. Keep the console window open; closing it quits the app.
+- All launchers share the models (`%USERPROFILE%\.cache\huggingface`) and your settings and images (`config.yaml` and `data\` in the app's folder). You can switch launchers any time, but run one at a time. They pass options on, e.g. `run-gpu.bat --self-test`.
+
+<details>
+<summary><strong>Windows problems</strong></summary>
+
+- **"An Application Control policy has blocked this file":** Smart App Control; see [Troubleshooting](#troubleshooting).
+- **The microphone list is empty, or nothing is heard:** **Settings → Privacy & security → Microphone** → turn on **Let desktop apps access your microphone**.
+- **"The GPU is not available"** (the Processor card says why): "PyTorch is CPU-only" means start with `run-gpu.bat` or `run-amd.bat` instead of `run-cpu.bat`. "No NVIDIA GPU…" or "No AMD GPU supported by ROCm…": update the graphics driver (AMD: Adrenalin 26.2.2+, RX 7000/9000 only) and restart the app.
+- **The console window closes straight away, or `uv` isn't found:** run the launcher from a terminal to read the error. If installing uv failed, install it from [the uv website](https://docs.astral.sh/uv/getting-started/installation/) and try again.
+- **Port 8765 is already in use:** set `server.port` in `config.yaml` to another number, and use it in OBS too.
+
+</details>
+
+### macOS
+
+Macs with **Apple Silicon** (M1 or newer; Apple menu → **About This Mac** says **Chip: Apple M…**) on **macOS 14 or newer**. Intel Macs can't run it: PyTorch no longer makes builds for them. About 3 GB of disk space, plus about 1.6 GB for the GPU speech model.
+
+> [!NOTE]
+> The Mac version is tested on GitHub's Apple Silicon machines (installing, every model, the test suite, a full run of the app), but those have no usable GPU, so **the Mac's GPU hasn't been tested on a real Mac yet**. If it gives you trouble, choose **Processor → CPU** on the setup page.
+
+1. Download the ZIP from GitHub (**Code → Download ZIP**; Safari unzips it) or `git clone https://github.com/pjang123/speech-emotion-overlay.git`.
+2. Open **Terminal** (**⌘ Space**, type *Terminal*), type `bash ` (with a space), drag **`run-mac.command`** from the app's folder into the window, and press Return. This works on every macOS version.
+
+   Or double-click `run-mac.command` in Finder. The first time macOS blocks it, because it isn't signed: on **macOS 15 or newer**, click **Done**, then **System Settings → Privacy & Security** → **Open Anyway**; on **macOS 14**, Control-click it → **Open** → **Open**.
+3. **When macOS asks whether Terminal may use the microphone, click Allow.** Without it the app only hears silence.
+
+The first start takes several minutes (uv, Python and the packages go into `.venv` in the app's folder; uv itself into `~/.local/bin`; the models into `~/.cache/huggingface`). Keep the Terminal window open; Control-C or closing it quits the app. **The Mac's GPU is used automatically** through Apple's Metal: the CPU and GPU share one chip, and the app runs its models on the GPU part. Global hotkeys are Windows-only; use the setup page's buttons or a [Stream Deck](#hotkeys-and-stream-deck).
+
+<details>
+<summary><strong>Mac problems</strong></summary>
+
+- **It never says "Speaking", or the transcript stays empty:** **System Settings → Privacy & Security → Microphone** → turn on **Terminal**, then quit Terminal completely (⌘Q) and start the app again.
+- **"run-mac.command can't be opened" / "Apple could not verify…":** allow it once in **Privacy & Security** (step 2), or start it with `bash run-mac.command` in Terminal, which is never blocked.
+- **"Permission denied" when double-clicking:** the ZIP lost the file's executable flag. Use `bash run-mac.command`, or run `chmod +x run-mac.command` once.
+- **"Emotion Overlay needs a Mac with Apple Silicon":** this is an Intel Mac.
+- **"PyTorch can't use this Mac's GPU":** the app runs on the CPU instead (slower). This happens on macOS older than 14 and in virtual machines.
+- **The GPU gives errors or wrong results:** choose **Processor → CPU** and please report it.
+
+</details>
+
+### Linux
+
+64-bit Linux on x86-64 (Ubuntu, Debian, Fedora, Arch…), with PipeWire or PulseAudio. Tested on Ubuntu 26.04 with the CPU and an NVIDIA GPU (RTX 5070 under WSL 2); AMD is untested. Disk space: about 3.5 GB (CPU), 7 GB (NVIDIA), 10 GB or more (AMD). There are no launchers or global hotkeys on Linux.
+
+```sh
+# 1. System packages: PortAudio (microphone), git, curl
+sudo apt install libportaudio2 git curl        # Ubuntu, Debian, Mint, Pop!_OS
+sudo dnf install portaudio git curl            # Fedora
+sudo pacman -S portaudio git curl              # Arch, Manjaro
+
+# 2. uv (installs Python and the packages); then open a new terminal
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 3. The app
+git clone https://github.com/pjang123/speech-emotion-overlay.git
+cd speech-emotion-overlay
+
+# 4. Install and start: pick ONE, and use the same --extra every time
+uv sync --extra cpu && uv run --extra cpu python -m emotion_overlay    # CPU
+uv sync --extra gpu && uv run --extra gpu python -m emotion_overlay    # NVIDIA (driver 580+, check nvidia-smi)
+sudo usermod -aG render,video "$USER"                                  # AMD: once, then log out and in
+uv sync --extra amd && uv run --extra amd python -m emotion_overlay    # AMD (any GPU ROCm 7.2 supports)
+```
+
+> [!WARNING]
+> Keep the same `--extra` on every `uv run`, or uv swaps in a different PyTorch build. Plain `uv sync` on Linux installs PyPI's PyTorch, which bundles NVIDIA's libraries (about 4 GB more), so use `--extra cpu` for the CPU.
+
+Press Ctrl+C to stop the app. OBS for Linux includes the Browser source; if yours lacks it, install OBS from [Flathub](https://flathub.org/apps/com.obsproject.Studio) or [the OBS PPA](https://obsproject.com/download).
+
+**Desktop shortcut (optional):** create `~/.local/share/applications/emotion-overlay.desktop`, with your folder and `--extra`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Emotion Overlay
+Exec=sh -c 'cd "$HOME/speech-emotion-overlay" && "$HOME/.local/bin/uv" run --extra cpu python -m emotion_overlay --open-browser'
+Terminal=true
+```
+
+<details>
+<summary><strong>Linux problems</strong></summary>
+
+- **`OSError: PortAudio library not found`:** install PortAudio (step 1).
+- **The microphone list is empty or nothing is heard:** check the mic in your system's sound settings, then try the `pipewire`, `pulse` or `default` entries in the setup page's **Microphone** card. Flatpak or Snap terminals may not be allowed to use the mic; use a normal terminal.
+- **"The GPU is not available"** (the Processor card says why): "PyTorch is CPU-only" means you installed with `--extra cpu`; run `uv sync --extra gpu` (or `amd`) and start with the same option. "No NVIDIA GPU…": install NVIDIA's proprietary driver 580+ and check `nvidia-smi`. "No AMD GPU supported by ROCm…": join the `render` and `video` groups (step 4), log out and in, and check [AMD's ROCm compatibility list](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/).
+- **"faster-whisper can't use the GPU" in the log (NVIDIA):** expected unless NVIDIA's CUDA 12 cuBLAS and cuDNN are installed; Whisper then runs through PyTorch on the GPU, which is fast too.
+- **Port 8765 is already in use:** set `server.port` in `config.yaml`, and use the new port in OBS too.
+
+</details>
+
+### Installing by hand
+
+The launchers are optional. With [uv](https://docs.astral.sh/uv/getting-started/installation/), in the app's folder:
 
 ```sh
 uv sync && uv run python -m emotion_overlay                               # CPU (Windows), or a Mac (GPU included)
 uv sync --extra cpu && uv run --extra cpu python -m emotion_overlay       # CPU (Linux)
-uv sync --extra gpu && uv run --extra gpu python -m emotion_overlay       # NVIDIA GPU
+uv sync --extra gpu && uv run --extra gpu python -m emotion_overlay       # NVIDIA GPU (Windows, Linux)
 uv sync --extra amd && uv run --extra amd python -m emotion_overlay       # AMD GPU, Linux only (untested)
 ```
 
-> [!WARNING]
-> Keep the same `--extra` option on every `uv run`, or uv swaps in a different build of PyTorch. On Linux a plain `uv sync` installs PyPI's PyTorch, which bundles NVIDIA's libraries (about 4 GB more), so use `--extra cpu` there.
+For AMD on Windows use `run-amd.bat`: AMD's Windows build isn't on a package index uv can lock. Without uv: create a virtual environment with Python 3.11–3.14 and run `pip install .` (for NVIDIA, first `pip install torch --index-url https://download.pytorch.org/whl/cu130`).
 
-The first start downloads about 2 GB of models, plus about 1.6 GB for the larger speech model (`large-v3-turbo`) the first time a GPU is used. After that the app starts offline.
+### Updating and uninstalling
 
-**Quick start once it's running:** open **http://127.0.0.1:8765/setup** → pick your mic → **Processor: Automatic** → add images (★ one as default) → calibrate → add the overlay to OBS and talk. The **Live** panel shows what was heard, the scores and the timings.
+**Updating:** with git, run `git pull` in the app's folder (on Linux, then `uv sync` with your `--extra`). With a ZIP, download the new one and copy `config.yaml` and the `data` folder over from the old folder. The launchers update the packages on their next start.
+
+**Uninstalling:**
+
+1. Export a backup first if you want to keep your images and settings (**Backup → Export setup**), then delete the app's folder.
+2. Windows: also delete `%LOCALAPPDATA%\emotion-overlay` (the GPU environments).
+3. Delete the downloaded models in the Hugging Face cache (`%USERPROFILE%\.cache\huggingface\hub` on Windows, `~/.cache/huggingface/hub` on Mac and Linux): the folders whose names contain `whisper`, `emotion-english-distilroberta` and `wavlm-large-categorical-emotion`. Leave the rest if other programs use Hugging Face models.
+4. Optional: remove uv with `uv self uninstall`, if nothing else uses it.
 
 ## Add the overlay to OBS
 
@@ -615,7 +730,7 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 ## Troubleshooting
 
 > [!TIP]
-> **Run the self-test first.** On Windows: `run-cpu.bat --self-test` (or with `run-gpu.bat` / `run-amd.bat`). On a Mac: `bash run-mac.command --self-test`. Anywhere: `uv run python -m emotion_overlay --self-test`, with the `--extra` you installed with after `uv run`. It loads and runs every model and names the step that fails. The [Windows](INSTALL-Windows.md#windows-problems), [macOS](INSTALL-macOS.md#mac-problems) and [Linux](INSTALL-Linux.md#linux-problems) guides cover system-specific problems.
+> **Run the self-test first.** On Windows: `run-cpu.bat --self-test` (or with `run-gpu.bat` / `run-amd.bat`). On a Mac: `bash run-mac.command --self-test`. Anywhere: `uv run python -m emotion_overlay --self-test`, with the `--extra` you installed with after `uv run`. It loads and runs every model and names the step that fails. Each system's own problems are listed under [Installation](#installation).
 
 <details open>
 <summary><strong>Common problems</strong></summary>
@@ -674,9 +789,6 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 run-cpu.bat, run-gpu.bat,  Windows launchers: CPU, NVIDIA GPU and AMD GPU (the GPU
   run-amd.bat                ones each in their own environment)
 run-mac.command            Mac launcher (Apple Silicon; uses the GPU when it can)
-INSTALL-Windows.md,        Installation guides
-  INSTALL-macOS.md,
-  INSTALL-Linux.md
 .python-version            The Python version uv uses (3.13)
 LICENSE                    MIT licence
 pyproject.toml, uv.lock    Dependencies (extras: "gpu" = PyTorch for NVIDIA, "amd" = for AMD on Linux)
