@@ -1,6 +1,7 @@
 """Microphone capture with sounddevice, delivering 16 kHz mono float32 blocks."""
 
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -11,6 +12,28 @@ log = logging.getLogger(__name__)
 
 TARGET_RATE = 16_000
 BLOCK_SECONDS = 0.032  # matches one 512-sample Silero frame at 16 kHz
+
+# PortAudio only scans for devices when it starts. A mic added, removed or restarted since
+# then (Bluetooth headsets and virtual mixers like Elgato's do this) keeps a stale entry:
+# indices shift and opening it fails, e.g. DirectSound -2005401480 (DSERR_NODRIVER).
+# Restarting PortAudio re-scans, but closes every stream, so only while none is open.
+_portaudio_lock = threading.RLock()
+_open_streams = 0
+
+
+def _rescan_devices() -> None:
+    import sounddevice as sd
+
+    with _portaudio_lock:
+        if _open_streams:
+            return
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception:
+            log.warning("Could not re-scan audio devices", exc_info=True)
+            if not sd._initialized:
+                sd._initialize()
 
 
 @dataclass(frozen=True)
@@ -23,6 +46,13 @@ class InputDevice:
 
 
 def list_input_devices() -> list[InputDevice]:
+    """Input devices as Windows sees them now (re-scanned unless the mic is open)."""
+    with _portaudio_lock:
+        _rescan_devices()
+        return _list_input_devices()
+
+
+def _list_input_devices() -> list[InputDevice]:
     import sounddevice as sd
 
     hostapis = sd.query_hostapis()
@@ -94,11 +124,17 @@ class MicCapture:
         self, device: int | None, name: str | None = None, hostapi: str | None = None
     ) -> None:
         """Open the mic saved by `name` (+ `hostapi`), else `device` (index), else the default."""
+        with _portaudio_lock:
+            self.stop()
+            _rescan_devices()
+            self._open(device, name, hostapi)
+
+    def _open(self, device: int | None, name: str | None, hostapi: str | None) -> None:
+        global _open_streams
         import sounddevice as sd
 
-        self.stop()
         if name:
-            device = pick_device(list_input_devices(), device, name, hostapi)
+            device = pick_device(_list_input_devices(), device, name, hostapi)
             self.missing_device = name if device is None else None
             if device is None:
                 log.warning("Saved microphone '%s' isn't connected; using the default", name)
@@ -125,14 +161,23 @@ class MicCapture:
             blocksize=int(rate * BLOCK_SECONDS),
             callback=callback,
         )
-        stream.start()
+        _open_streams += 1
+        try:
+            stream.start()
+        except Exception:
+            stream.close()
+            _open_streams -= 1
+            raise
         self._stream = stream
         self.device_name = str(info["name"])
         self.samplerate = rate
         log.info("Microphone open: %s @ %d Hz", self.device_name, rate)
 
     def stop(self) -> None:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        global _open_streams
+        with _portaudio_lock:
+            if self._stream is not None:
+                stream, self._stream = self._stream, None
+                _open_streams -= 1
+                stream.stop()
+                stream.close()
