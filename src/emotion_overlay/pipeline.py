@@ -425,7 +425,7 @@ class Pipeline:
             calibration.final_bias if calibration else None,
         )
         with self._state_lock:
-            state = self._machine.on_scores(breakdown.final, time.monotonic())
+            state = self._machine.on_scores(breakdown.final, time.monotonic(), provisional=True)
             smoothed = self._machine.smoothed
             self._last_emitted = state
             self._events.on_state(state, False)
@@ -602,7 +602,7 @@ class Pipeline:
             calibration.final_bias if calibration else None,
         )
         with self._state_lock:
-            state = self._machine.on_scores(breakdown.final, time.monotonic())
+            state = self._machine.on_scores(breakdown.final, time.monotonic(), provisional=True)
             self._last_emitted = state
             self._events.on_state(state, True)
         return True

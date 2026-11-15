@@ -332,7 +332,7 @@ Combine with `&`: `http://127.0.0.1:8765/overlay?fit=cover&label=1`. The overlay
 
 - **Images:** PNG, JPEG, WebP or GIF, up to 10 MB and 4096 × 4096 pixels each. Upload, paste a link (Tenor/Giphy pages work) or drag one in from another tab.
   - Each image belongs to an emotion. Images for word triggers go in **Trigger images**, on the **Word triggers** page; they're never shown for an emotion.
-  - **Tier:** **Any**, **Mild** or **Strong**. Strong shows at or above the Strong-tier threshold, Mild below. Without the needed tier, **Any** images are used, then whatever the emotion has.
+  - **When it's used** (the dropdown under each image): **Always**, **Mild only** or **Strong only**. Strong shows at or above **Strong images from** (Settings), Mild below. Without the needed kind, **Always** images are used, then whatever the emotion has.
   - **★ Default** is shown for emotions without images. Names are only for you; files are stored under random IDs.
 - **Word triggers:** one or more phrases, an image and a duration (0.5–60 s). Matching is whole-word and ignores case, punctuation and apostrophes ("G.G." matches "gg"). Stretched letters ("bruhhhh") and common slang spellings match too. Up to 50. **Test** shows one without saying it.
 
@@ -340,37 +340,40 @@ Combine with `&`: `http://127.0.0.1:8765/overlay?fit=cover&label=1`. The overlay
 
 ### Settings
 
+Settings are listed here in the order they appear on the page. Confidence values are shown in % there, like on the Live page (40% = 0.4 in `config.yaml`).
+
 | Setting | Default | What it does |
 |---|---|---|
-| **Detection** | | |
-| Minimum confidence | 0.5 | Below this, the detection counts as unsure |
-| When unsure | Keep current image | Keep the current image, or go to neutral |
+| **How often the image changes** | Fast | **Slow:** each image stays at least 7 s. **Normal:** at least 3.5 s. **Fast:** the image can change with every sentence. Slow and Normal still switch at once when a new emotion clearly takes over. Shows **Custom** if you change the values under Advanced |
+| **How it reacts** | | |
+| Minimum confidence | 50% | How sure it must be before the image changes; below this the result counts as unsure. On the Live page, a line on each score bar marks it |
+| Strong images from | 85% | At or above this, an emotion's Strong images are used instead of its Mild ones. A bar under these two shows how they split 0–100% |
+| When it isn't sure | Keep the current image | Keep the current image, or go back to neutral |
 | Back to neutral after silence | 3 s | Show neutral after this much silence |
 | Update while talking | Automatic | Re-check while you're still talking: every 0.5 s on a GPU, 1 s on a CPU, a fixed interval, or off |
 | Understand slang | On | Read slang as plain English before judging the emotion |
-| **Display** | | |
+| **Per emotion** (one table) | | |
+| Minimum confidence, Strong images from | Empty (general setting) | The emotion's own values, e.g. raise disgust's Minimum confidence to 70% if it shows up too often |
+| Without images | Default image | The default image, or another emotion's images |
+| Effect | None | Shake, pulse, jump, tremble or droop when its image appears |
+| **How images appear** | | |
 | Transition | Cross-fade | Cross-fade, cut or bounce between images |
 | Transition time | 300 ms | Length of the transition |
 | With several images | Pick randomly | Random (never the same twice in a row) or cycle in order |
 | New image every sentence | Off | Switch to another image of the same emotion each time you speak |
-| Strong-tier threshold | 0.85 | Strong images show at or above this confidence |
 | **Tone of voice** | | |
 | Use tone of voice | On | Turn the voice model on or off |
-| Voice weight | 0.25 | How much the voice counts against the words. 0 = words only, 1 = voice only |
-| **Per emotion** (one table) | | |
-| Minimum, Strong at | Empty (general setting) | The emotion's own Minimum confidence and Strong-tier threshold, e.g. raise Minimum for an emotion that shows up too often |
-| Without images | Default image | The default image, or another emotion's images |
-| Effect | None | Shake, pulse, jump, tremble or droop when its image appears |
-| **Advanced → Speech detection** | | Folded away; rarely needs changing |
+| Voice weight | 25% | How much the voice counts against the words. 0% = words only, 100% = voice only |
+| **Advanced → Pace in detail** | | All off by default (Fast). Slow and Normal set the first two |
+| Minimum time on screen | 0 s (off) | Keep each emotion at least this long. Normal: 3.5 s, Slow: 7 s |
+| Switch at once when ahead by | 0% (off) | A new emotion this far ahead of the one showing switches at once, skipping both waits. Normal: 70%, Slow: 85% |
+| Sentences before switching | 1 (off) | A new emotion must stay on top this many times in a row. Also turns off the early words-only result |
+| Smoothing | 1 (off) | Lower values average each new result with the previous ones. Also turns off the early words-only result |
+| **Advanced → Speech detection** | | Rarely needs changing |
 | Text window | 6 s | How much recent speech is judged together. 0 = only the last sentence |
 | Pause that ends a sentence | 400 ms | Shorter reacts faster but may split sentences |
 | Longest chunk of speech | 6 s | Non-stop talking is judged in chunks this long |
 | Voice detection threshold | 0.5 | Higher ignores more background noise |
-| **Advanced → Stability (anti-flicker)** | | All off by default, so the image follows every sentence |
-| Smoothing | 1 (off) | Lower values average each new result with the previous ones |
-| Sentences before switching | 1 (off) | A new emotion must stay on top this many times in a row |
-| Instant-switch lead | 0 (off) | A new emotion that leads by this much switches at once anyway |
-| Minimum time on screen | 0 s (off) | Keep each emotion at least this long |
 
 **Reset settings to defaults** (bottom of the Settings page) restores all of these. Mic, images, triggers and calibration aren't affected.
 
@@ -399,7 +402,7 @@ Recalibrate after changing mics, rooms or the voice model. A calibration made fo
 Click **Start calibration** and read each line the way it asks ("Say it happy", "Say it scared"…). The app then:
 
 - **Corrects the models for your voice and mic,** for example if the voice model hears you as slightly angry all the time.
-- **Recommends settings for how you speak:** your pauses (pause that ends a sentence), your speech against background noise (voice detection threshold), whether tone of voice helps you (voice weight), and how confidently your lines were recognised (minimum confidence, Strong-tier threshold).
+- **Recommends settings for how you speak:** your pauses (pause that ends a sentence), your speech against background noise (voice detection threshold), whether tone of voice helps you (voice weight), and how confidently your lines were recognised (minimum confidence, Strong images from).
 
 ### Long-recording calibration
 
@@ -539,8 +542,8 @@ state:                      # what is shown (see "Settings" above)
   silence_timeout_s: 3.0
   smoothing: 1.0            # 1 = off
   persist_windows: 1        # 1 = off
-  instant_switch_margin: 0.0
-  min_display_s: 0.0
+  instant_switch_margin: 0.0 # 0 = off; Normal = 0.7, Slow = 0.85
+  min_display_s: 0.0        # 0 = off; Normal = 3.5, Slow = 7
 
 display:
   transition: fade          # fade | cut | bounce

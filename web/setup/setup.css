@@ -697,6 +697,10 @@ h3.subhead {
   margin: 0;
 }
 
+.live-info .scores:not(:empty) + .label {
+  margin-top: 14px;
+}
+
 .speaking {
   display: flex;
   align-items: center;
@@ -784,8 +788,23 @@ h3.subhead {
   background: var(--accent);
 }
 
+.score .bar {
+  position: relative;
+}
+
 .score .fill {
   background: var(--bar-fill);
+}
+
+/* Where the score has to reach for the emotion to show. */
+.score .threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  opacity: 0.55;
 }
 
 .score.top .fill {
@@ -1224,6 +1243,156 @@ label.inline input {
 
   .setting.check {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+/* A number box with its unit after it (s, ms, %). */
+.with-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.with-unit > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.unit {
+  flex: none;
+  min-width: 1.6em;
+  color: var(--muted);
+}
+
+.per-emotion .with-unit > input {
+  flex: 0 0 72px;
+}
+
+/* Minimum confidence and Strong images from, drawn as one 0-100% bar. */
+.scale {
+  padding: 4px 0 12px;
+}
+
+.scale-bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+}
+
+.scale-bar > span {
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+
+.scale-bar > span + span {
+  border-left: 2px solid var(--card);
+}
+
+.scale-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.scale-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scale-legend li::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--swatch);
+}
+
+.scale-unsure {
+  --swatch: var(--bar);
+  background: var(--swatch);
+}
+
+.scale-mild {
+  --swatch: var(--bar-fill);
+  background: var(--swatch);
+}
+
+.scale-strong {
+  --swatch: var(--accent);
+  background: var(--swatch);
+}
+
+.scale-legend li.scale-unsure,
+.scale-legend li.scale-mild,
+.scale-legend li.scale-strong {
+  background: none;
+}
+
+/* Slow / Normal / Fast */
+.pace {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.pace-option {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  cursor: pointer;
+}
+
+.pace-option:hover {
+  border-color: var(--accent);
+}
+
+/* The radio stays focusable and readable by screen readers; the card shows the choice. */
+.pace-option > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pace-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.pace-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pace-name {
+  font-weight: 600;
+}
+
+.pace-option:has(input:checked) .pace-name {
+  color: var(--accent-strong);
+}
+
+.pace-description {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .pace {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

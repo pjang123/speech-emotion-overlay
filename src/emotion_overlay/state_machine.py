@@ -8,13 +8,21 @@ config, so settings edited on the setup page apply to the next window.
                                      then prefer neutral, then alphabetical)
     candidate must: reach its threshold (confidence_thresholds[emotion], else
                         confidence_threshold)
-                    AND stay on top for persist_windows OR lead by instant_switch_margin
+                    AND stay on top for persist_windows
                     AND current emotion shown for >= min_display_s (not applied to the
                         resting neutral after startup/silence)
+                    (a lead of instant_switch_margin over the current emotion skips
+                    both waits)
     -> switch displayed emotion
     an unsure window (below threshold) in "hold" mode neither advances nor cancels
     a pending switch; in "neutral" mode it requests neutral
     no speech and no scores for silence_timeout_s -> neutral (bypasses min_display_s)
+
+Provisional windows (words-only results shown before a sentence is finished) are
+guesses: if the sentence's final window is unsure, "hold" goes back to what was
+showing (or waiting to show) before them instead of holding the guess. Otherwise
+a guess that passed an emotion's threshold would stay although the final score
+didn't.
 
 With the default config (smoothing 1, persist 1, min display 0) every confident
 window switches immediately; the stability rules are opt-in.
@@ -60,6 +68,8 @@ class EmotionStateMachine:
         self._streak = 0
         # A switch that passed every rule except min_display_s; applied by tick().
         self._waiting: tuple[str, float, str] | None = None
+        # What was showing (and waiting) before the current sentence's provisional windows.
+        self._before_provisional: tuple[EmotionState, tuple[str, float, str] | None] | None = None
 
     @property
     def state(self) -> EmotionState:
@@ -73,11 +83,21 @@ class EmotionStateMachine:
         """Record that the user is speaking, which postpones the silence timeout."""
         self._last_activity = max(self._last_activity, now)
 
-    def on_scores(self, scores: Scores, now: float) -> EmotionState:
-        """Feed one window of classifier scores."""
+    def on_scores(self, scores: Scores, now: float, *, provisional: bool = False) -> EmotionState:
+        """Feed one window of classifier scores.
+
+        provisional=True marks an early result for a sentence that will get a final
+        window later (see the module docstring).
+        """
         # New scores count as activity: transcription can finish after the speaker
         # has gone quiet, and the result must not be wiped out by the silence rule.
         self.on_activity(now)
+        before = self._before_provisional
+        if provisional:
+            if before is None:
+                self._before_provisional = (self._state, self._waiting)
+        else:
+            self._before_provisional = None
         if not scores:
             return self._state
         cfg = self._config
@@ -90,6 +110,15 @@ class EmotionStateMachine:
             if cfg.low_confidence == "neutral":
                 self._clear_pending()
                 return self._request(NEUTRAL, confidence, "low_confidence", now)
+            if not provisional and before is not None:
+                # The sentence's guess didn't hold up: undo it, including a switch
+                # it queued behind min_display_s.
+                shown, self._waiting = before
+                if shown.emotion != current:
+                    self._streak_emotion, self._streak = None, 0
+                    score = smoothed.get(shown.emotion, 0.0)
+                    self._state = replace(shown, confidence=score, since=now)
+                    return self._state
             # "hold": an unsure window neither counts toward nor cancels a pending switch.
             return self._set_confidence(current_score)
 
@@ -109,7 +138,7 @@ class EmotionStateMachine:
         if not (persisted or decisive):
             self._waiting = None
             return self._set_confidence(current_score)
-        return self._request(candidate, confidence, "scores", now)
+        return self._request(candidate, confidence, "scores", now, urgent=decisive)
 
     def tick(self, now: float) -> EmotionState:
         """Apply time-based rules. Call regularly, even when nothing is said."""
@@ -117,6 +146,7 @@ class EmotionStateMachine:
         if self._state.emotion != NEUTRAL and idle >= self._config.silence_timeout_s:
             self._smoothed.clear()  # don't let the old mood leak into the next sentence
             self._clear_pending()
+            self._before_provisional = None
             self._state = EmotionState(NEUTRAL, 0.0, "silence", now)
         elif self._waiting is not None:
             self._request(*self._waiting, now)
@@ -126,6 +156,7 @@ class EmotionStateMachine:
         """Go to neutral immediately and forget all history (e.g. listening paused)."""
         self._smoothed.clear()
         self._clear_pending()
+        self._before_provisional = None
         self._last_activity = now
         self._state = EmotionState(NEUTRAL, 0.0, reason, now)
         return self._state
@@ -144,14 +175,19 @@ class EmotionStateMachine:
             }
         return self._smoothed
 
-    def _request(self, emotion: str, confidence: float, reason: str, now: float) -> EmotionState:
-        """Switch to `emotion` unless the current one hasn't been shown long enough."""
+    def _request(
+        self, emotion: str, confidence: float, reason: str, now: float, *, urgent: bool = False
+    ) -> EmotionState:
+        """Switch to `emotion` unless the current one hasn't been shown long enough.
+
+        urgent (a decisive lead) skips min_display_s.
+        """
         if emotion == self._state.emotion:
             self._waiting = None
             return self._set_confidence(confidence)
         # The resting neutral isn't a reaction worth holding on screen.
         resting = self._state.reason in RESTING_REASONS
-        if not resting and now - self._state.since < self._config.min_display_s:
+        if not (resting or urgent) and now - self._state.since < self._config.min_display_s:
             self._waiting = (emotion, confidence, reason)
             return self._state
         self._clear_pending()

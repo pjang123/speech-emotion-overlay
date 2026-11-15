@@ -122,9 +122,9 @@ def _voice_weight(
     winners = [w for w, a in accuracy.items() if a >= best - 1e-9]
     chosen = min(winners, key=lambda w: (abs(w - current), w))
     evidence = (
-        f"{_pct(accuracy[chosen])} of your lines were right at voice weight {chosen:.1f} vs "
-        f"{_pct(accuracy[current])} at {current:.2f} (each line tested with a calibration "
-        "that never saw it)."
+        f"{_pct(accuracy[chosen])} of your lines were right at voice weight "
+        f"{_pct(chosen)} vs {_pct(accuracy[current])} at {_pct(current)} (each line tested "
+        "with a calibration that never saw it)."
     )
     if chosen == 0.0:
         rec = Recommendation(
@@ -164,7 +164,7 @@ def _confidence(
                 current,
                 threshold,
                 f"{kept} of your {len(hits)} correctly detected emotional lines scored at least "
-                f"{threshold:.2f}, so this lets your real reactions through"
+                f"{_pct(threshold)}, so this lets your real reactions through"
                 + (" while ignoring weaker guesses." if threshold > current else "."),
             )
         )
@@ -179,10 +179,10 @@ def _confidence(
         recs.append(
             Recommendation(
                 "display.strong_threshold",
-                "Strong-tier threshold",
+                "Strong images from",
                 strong_now,
                 strong,
-                f"Half of your correct reactions scored above {strong:.2f}, so your Mild and "
+                f"Half of your correct reactions scored above {_pct(strong)}, so your Mild and "
                 "Strong images will show about equally often.",
             )
         )

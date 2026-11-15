@@ -19,20 +19,32 @@ const ui = {
   voiceModel: null,
 };
 
-const TIER_LABELS = { any: "Any", mild: "Mild", strong: "Strong" };
+const TIER_LABELS = { any: "Always", mild: "Mild only", strong: "Strong only" };
+
+const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+// The general threshold, or the emotion's own one from the Per emotion table.
+const thresholdFor = (emotion) =>
+  ui.settings ? (ui.settings.state.confidence_thresholds[emotion] ?? ui.settings.state.confidence_threshold) : null;
 
 // Settings form definition. `path` is "section.key" in /api/settings.
+// `unit` is shown after a number box; `percent` fields hold 0..1 and are edited as 0..100 %,
+// the same way the Live page shows how sure the app is.
 // Groups marked `advanced` are folded away under "Advanced" on the Settings page.
 const SETTINGS = [
   {
-    title: "Detection",
+    title: "How it reacts",
+    note: "The Live page shows how sure the app is about each sentence, e.g. joy 62%.",
     fields: [
-      { path: "state.confidence_threshold", label: "Minimum confidence", type: "number", min: 0, max: 1, step: 0.05,
-        help: "Below this the detection counts as unsure. Can be set per emotion below." },
-      { path: "state.low_confidence", label: "When unsure", type: "select",
-        options: { hold: "Keep current image", neutral: "Go to neutral" } },
-      { path: "state.silence_timeout_s", label: "Back to neutral after silence (s)", type: "number",
-        min: 0.5, max: 600, step: 0.5 },
+      { path: "state.confidence_threshold", label: "Minimum confidence", type: "number", percent: true,
+        help: "How sure it must be before the image changes. Raise it if wrong emotions show up; lower it if real ones are missed. Set it per emotion just below." },
+      { path: "display.strong_threshold", label: "Strong images from", type: "number", percent: true,
+        help: "When it's at least this sure, the emotion's Strong images are used instead of its Mild ones." },
+      { block: () => confidenceScale() },
+      { path: "state.low_confidence", label: "When it isn't sure", type: "select",
+        options: { hold: "Keep the current image", neutral: "Go back to neutral" } },
+      { path: "state.silence_timeout_s", label: "Back to neutral after silence", type: "number",
+        min: 0.5, max: 600, step: 0.5, unit: "s", help: "How long after you stop talking." },
       { path: "classifier.interim_s", label: "Update while talking", type: "select",
         // A list, not an object: JS would put the integer-like keys first.
         options: [["auto", "Automatic"], ["0", "Off"], ["0.5", "Every 0.5 s"], ["1", "Every 1 s"],
@@ -45,17 +57,15 @@ const SETTINGS = [
     ],
   },
   {
-    title: "Display",
+    title: "How images appear",
     fields: [
       { path: "display.transition", label: "Transition", type: "select",
         options: { fade: "Cross-fade", cut: "Cut", bounce: "Bounce" } },
-      { path: "display.fade_ms", label: "Transition time (ms)", type: "number", min: 0, max: 5000, step: 50 },
+      { path: "display.fade_ms", label: "Transition time", type: "number", min: 0, max: 5000, step: 50, unit: "ms" },
       { path: "display.rotation", label: "With several images", type: "select",
         options: { random: "Pick randomly", cycle: "Cycle in order" } },
       { path: "display.new_image_each_utterance", label: "New image every sentence", type: "checkbox",
         help: "Switch to another image of the same emotion each time you speak." },
-      { path: "display.strong_threshold", label: "Strong-tier threshold", type: "number", min: 0, max: 1, step: 0.05,
-        help: "Strong images show at or above this confidence, Mild ones below." },
     ],
   },
   {
@@ -64,40 +74,44 @@ const SETTINGS = [
     fields: [
       { path: "audio_emotion.enabled", label: "Use tone of voice", type: "checkbox",
         help: "The first time you turn this on it downloads a ~1.3 GB model." },
-      { path: "audio_emotion.weight", label: "Voice weight", type: "number", min: 0, max: 1, step: 0.05,
-        help: "0 = words only, 1 = voice only." },
+      { path: "audio_emotion.weight", label: "Voice weight", type: "number", percent: true,
+        help: "How much your voice counts against your words: 0% = words only, 100% = voice only. Calibration recommends a value for you." },
+    ],
+  },
+  {
+    title: "Pace, in detail",
+    advanced: true,
+    note: "Set by the Slow, Normal and Fast buttons at the top; changing these makes it Custom.",
+    fields: [
+      { path: "state.min_display_s", label: "Minimum time on screen", type: "number", min: 0, max: 60, step: 0.5,
+        unit: "s", help: "0 = off. Normal: 3.5 s, Slow: 7 s." },
+      { path: "state.instant_switch_margin", label: "Switch at once when ahead by", type: "number", percent: true,
+        help: "0 = off. A new emotion this far ahead of the one showing doesn't wait. Normal: 70%, Slow: 85%." },
+      { path: "state.persist_windows", label: "Sentences before switching", type: "number", min: 1, max: 10, step: 1,
+        help: "1 = off. A new emotion must win this many sentences in a row. Also turns off the early words-only result, so changes come a little later." },
+      { path: "state.smoothing", label: "Smoothing", type: "number", min: 0.05, max: 1, step: 0.05,
+        help: "1 = off. Lower values blend each sentence with the ones before. Also turns off the early words-only result." },
     ],
   },
   {
     title: "Speech detection",
     advanced: true,
     fields: [
-      { path: "classifier.window_seconds", label: "Text window (s)", type: "number", min: 0, max: 60, step: 1,
-        help: "How much recent speech is judged together. 0 = only the last sentence." },
-      { path: "vad.min_silence_ms", label: "Pause that ends a sentence (ms)", type: "number",
-        min: 50, max: 5000, step: 50, help: "Shorter reacts faster but may split sentences." },
-      { path: "vad.max_utterance_s", label: "Longest chunk of speech (s)", type: "number", min: 1, max: 30, step: 0.5,
-        help: "Non-stop talking is judged in chunks this long." },
+      { path: "classifier.window_seconds", label: "Text window", type: "number", min: 0, max: 60, step: 1,
+        unit: "s", help: "How much recent speech is judged together. 0 = only the last sentence." },
+      { path: "vad.min_silence_ms", label: "Pause that ends a sentence", type: "number",
+        min: 50, max: 5000, step: 50, unit: "ms", help: "Shorter reacts faster but may split sentences." },
+      { path: "vad.max_utterance_s", label: "Longest chunk of speech", type: "number", min: 1, max: 30, step: 0.5,
+        unit: "s", help: "Non-stop talking is judged in chunks this long." },
       { path: "vad.threshold", label: "Voice detection threshold", type: "number", min: 0.05, max: 0.95, step: 0.05,
         help: "Higher ignores more background noise." },
     ],
   },
-  {
-    title: "Stability (anti-flicker)",
-    advanced: true,
-    note: "All off by default, so the image follows every sentence. Turn these on if it changes too often.",
-    fields: [
-      { path: "state.smoothing", label: "Smoothing", type: "number", min: 0.05, max: 1, step: 0.05,
-        help: "1 = off. Lower values blend each sentence with the ones before." },
-      { path: "state.persist_windows", label: "Sentences before switching", type: "number", min: 1, max: 10, step: 1,
-        help: "1 = off. A new emotion must win this many sentences in a row." },
-      { path: "state.instant_switch_margin", label: "Instant-switch lead", type: "number", min: 0, max: 1, step: 0.05,
-        help: "0 = off. Skip the wait when the new emotion leads by this much." },
-      { path: "state.min_display_s", label: "Minimum time on screen (s)", type: "number", min: 0, max: 60, step: 0.5,
-        help: "0 = off." },
-    ],
-  },
 ];
+
+// 0..1 <-> 0..100 for `percent` fields, without float noise like 70.00000000000001.
+const toPercent = (value) => Math.round(value * 1000) / 10;
+const fromPercent = (value) => Math.round(value * 10) / 1000;
 
 function el(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
@@ -667,7 +681,11 @@ function thumbnail(img) {
 
   const tier = el(
     "select",
-    { className: "tier", title: "Intensity tier" },
+    {
+      className: "tier",
+      title:
+        "When to use this image. Mild only: when the app is fairly sure. Strong only: when it's very sure (Settings → Strong images from). Always: both.",
+    },
     ...Object.entries(TIER_LABELS).map(([value, label]) => el("option", { value, textContent: label })),
   );
   tier.value = img.tier;
@@ -789,6 +807,8 @@ function settingInput(field) {
     input.value = shown;
   } else if (field.type === "checkbox") {
     input = el("input", { type: "checkbox", checked: value });
+  } else if (field.percent) {
+    input = el("input", { type: "number", min: 0, max: 100, step: 5, value: toPercent(value) });
   } else {
     input = el("input", { type: "number", min: field.min, max: field.max, step: field.step, value });
   }
@@ -797,12 +817,94 @@ function settingInput(field) {
     if (field.type === "checkbox") next = input.checked;
     if (field.type === "number") {
       if (input.value === "" || Number.isNaN(Number(input.value))) return renderSettings();
-      next = Number(input.value);
+      next = field.percent ? fromPercent(Number(input.value)) : Number(input.value);
     }
     const [section, key] = field.path.split(".");
     saveSettings({ [section]: { [key]: next } });
   });
-  return input;
+  const unit = field.percent ? "%" : field.unit;
+  return unit ? withUnit(input, unit) : input;
+}
+
+// A bar showing how Minimum confidence and Strong images from split 0-100%.
+function confidenceScale() {
+  const low = ui.settings.state.confidence_threshold;
+  const strong = Math.max(low, ui.settings.display.strong_threshold);
+  const parts = [
+    ["unsure", low, `Below ${percent(low)}: not sure`],
+    ["mild", strong - low, `${percent(low)} to ${percent(strong)}: Mild images`],
+    ["strong", 1 - strong, `${percent(strong)} and up: Strong images`],
+  ];
+  const bar = el("div", { className: "scale-bar" });
+  const legend = el("ul", { className: "scale-legend" });
+  for (const [kind, width, text] of parts) {
+    if (width <= 0) continue;
+    const segment = el("span", { className: `scale-${kind}` });
+    segment.style.flexBasis = `${width * 100}%`;
+    bar.append(segment);
+    legend.append(el("li", { className: `scale-${kind}`, textContent: text }));
+  }
+  const note =
+    ui.settings.display.strong_threshold <= low
+      ? [el("p", { className: "hint small", textContent: "Strong images from is at or below Minimum confidence, so Mild images are never used." })]
+      : [];
+  return el("div", { className: "scale" }, bar, legend, ...note);
+}
+
+function withUnit(input, unit) {
+  return el("span", { className: "with-unit" }, input, el("span", { className: "unit", textContent: unit }));
+}
+
+// Pace presets: values for the anti-flicker settings. Anything else shows as Custom.
+const PACES = {
+  fast: { smoothing: 1, persist_windows: 1, instant_switch_margin: 0, min_display_s: 0 },
+  normal: { smoothing: 1, persist_windows: 1, instant_switch_margin: 0.7, min_display_s: 3.5 },
+  slow: { smoothing: 1, persist_windows: 1, instant_switch_margin: 0.85, min_display_s: 7 },
+};
+
+const PACE_CHOICES = [
+  ["slow", "Slow", "Each image stays at least 7 s"],
+  ["normal", "Normal", "Each image stays at least 3.5 s"],
+  ["fast", "Fast", "Changes with every sentence"],
+];
+
+function currentPace() {
+  const { state } = ui.settings;
+  const matches = ([, preset]) => Object.entries(preset).every(([key, value]) => state[key] === value);
+  return Object.entries(PACES).find(matches)?.[0] ?? "custom";
+}
+
+// "How often the image changes", at the top of Settings.
+function radioGroup(node, label) {
+  node.setAttribute("role", "radiogroup");
+  node.setAttribute("aria-label", label);
+  return node;
+}
+
+function paceCard() {
+  const pace = currentPace();
+  const options = PACE_CHOICES.map(([value, name, description]) => {
+    const radio = el("input", { type: "radio", name: "pace", value, checked: pace === value });
+    radio.addEventListener("change", () => saveSettings({ state: PACES[value] }));
+    return el(
+      "label",
+      { className: "pace-option" },
+      radio,
+      el("span", { className: "pace-name", textContent: name }),
+      el("span", { className: "pace-description", textContent: description }),
+    );
+  });
+  const note =
+    pace === "custom"
+      ? "Custom: you changed the values under Settings → Advanced. Pick one above to go back to a preset."
+      : "Slow and Normal still switch at once when a new emotion clearly takes over.";
+  return el(
+    "section",
+    { className: "card" },
+    el("h2", { textContent: "How often the image changes" }),
+    radioGroup(el("div", { className: "pace" }, ...options), "How often the image changes"),
+    el("p", { className: "hint after", textContent: note }),
+  );
 }
 
 function settingRow(label, input, help) {
@@ -839,22 +941,22 @@ function saveEmotionEntry(section, key, emotion, value) {
 
 function thresholdInput(section, key, general, label, emotion) {
   const overrides = ui.settings[section][key] ?? {};
-  const fallback = ui.settings[section][general];
+  const fallback = toPercent(ui.settings[section][general]);
   const input = el("input", {
     type: "number",
     min: 0,
-    max: 1,
-    step: 0.05,
-    value: overrides[emotion] ?? "",
+    max: 100,
+    step: 5,
+    value: emotion in overrides ? toPercent(overrides[emotion]) : "",
     placeholder: String(fallback),
-    title: `${label} for ${emotion}. Empty = the general setting (${fallback}).`,
+    title: `${label} for ${emotion}. Empty = the general setting (${fallback}%).`,
   });
-  input.setAttribute("aria-label", `${label} for ${emotion}`);
+  input.setAttribute("aria-label", `${label} for ${emotion}, in percent`);
   input.addEventListener("change", () => {
     if (input.value !== "" && Number.isNaN(Number(input.value))) return renderSettings();
-    saveEmotionEntry(section, key, emotion, input.value === "" ? "" : Number(input.value));
+    saveEmotionEntry(section, key, emotion, input.value === "" ? "" : fromPercent(Number(input.value)));
   });
-  return input;
+  return withUnit(input, "%");
 }
 
 function labelledSelect(options, value, label, onChange) {
@@ -873,7 +975,7 @@ function perEmotionCard() {
       emotion === "neutral"
         ? el("span", { className: "muted small", textContent: "Default image" })
         : labelledSelect(
-            [["", "Default image"], ...ui.emotions.filter((e) => e !== emotion).map((e) => [e, `${e} images`])],
+            [["", "Default image"], ...ui.emotions.filter((e) => e !== emotion).map((e) => [e, `${capitalize(e)} images`])],
             display.fallbacks[emotion] ?? "",
             `What ${emotion} shows without images`,
             (value) => saveEmotionEntry("display", "fallbacks", emotion, value),
@@ -889,7 +991,7 @@ function perEmotionCard() {
       {},
       el("th", { scope: "row", textContent: emotion }),
       el("td", {}, thresholdInput("state", "confidence_thresholds", "confidence_threshold", "Minimum confidence", emotion)),
-      el("td", {}, thresholdInput("display", "strong_thresholds", "strong_threshold", "Strong-tier threshold", emotion)),
+      el("td", {}, thresholdInput("display", "strong_thresholds", "strong_threshold", "Strong images from", emotion)),
       el("td", {}, fallback),
       el("td", {}, effect),
     );
@@ -897,7 +999,7 @@ function perEmotionCard() {
   const head = el(
     "tr",
     {},
-    ...["Emotion", "Minimum", "Strong at", "Without images", "Effect"].map((text) =>
+    ...["Emotion", "Minimum confidence", "Strong images from", "Without images", "Effect"].map((text) =>
       el("th", { scope: "col", textContent: text }),
     ),
   );
@@ -908,7 +1010,7 @@ function perEmotionCard() {
     el("p", {
       className: "hint",
       textContent:
-        "Empty boxes use the general setting, shown greyed out. Raise Minimum for an emotion that shows up too often, or lower it for one that rarely does.",
+        "Override the general settings for one emotion. Empty boxes use the general value, shown greyed out. Example: if disgust shows up when you're not disgusted, raise its Minimum confidence to 70%.",
     }),
     el(
       "div",
@@ -918,7 +1020,7 @@ function perEmotionCard() {
     el("p", {
       className: "hint after small",
       textContent:
-        "Without images: what to show when the emotion has no images of its own. Effect: a short animation when its image appears; try one with Hold an emotion on the Live page.",
+        "Without images: what to show when the emotion has no images of its own. Effect: a short animation when its image appears. To try an effect, hold that emotion on the Live page.",
     }),
   );
 }
@@ -929,22 +1031,27 @@ function settingsGroup(group, nested = false) {
     { className: nested ? "sub-group" : "card" },
     el(nested ? "h3" : "h2", { textContent: group.title }),
     ...(group.note ? [el("p", { className: "hint", textContent: group.note })] : []),
-    el("div", { className: "setting-list" }, ...group.fields.map((f) => settingRow(f.label, settingInput(f), f.help))),
+    el(
+      "div",
+      { className: "setting-list" },
+      ...group.fields.map((f) => (f.block ? f.block() : settingRow(f.label, settingInput(f), f.help))),
+    ),
   );
 }
 
 function renderSettings() {
   if (!ui.settings) return;
-  const basic = SETTINGS.filter((g) => !g.advanced).map((g) => settingsGroup(g));
+  const [detection, ...rest] = SETTINGS.filter((g) => !g.advanced).map((g) => settingsGroup(g));
   // Re-rendered after every save, so remember whether Advanced was open.
   const advanced = el(
     "details",
     { className: "card fold", open: Boolean(ui.advancedOpen) },
-    el("summary", { textContent: "Advanced: speech detection and anti-flicker" }),
+    el("summary", { textContent: "Advanced: pace in detail, speech detection" }),
     ...SETTINGS.filter((g) => g.advanced).map((g) => settingsGroup(g, true)),
   );
   advanced.addEventListener("toggle", () => (ui.advancedOpen = advanced.open));
-  $("settings").replaceChildren(...basic, perEmotionCard(), advanced);
+  // Per emotion sits right under the general thresholds it overrides.
+  $("settings").replaceChildren(paceCard(), detection, perEmotionCard(), ...rest, advanced);
 }
 
 async function resetSettings() {
@@ -1005,8 +1112,17 @@ async function saveCalibration(applyPaths) {
   }
 }
 
-const formatValue = (value) =>
-  typeof value === "boolean" ? (value ? "on" : "off") : Number.isInteger(value) ? `${value}` : value.toFixed(2);
+// Settings edited in percent on the Settings page are shown in percent here too.
+const PERCENT_PATHS = new Set(
+  SETTINGS.flatMap((group) => group.fields.filter((field) => field.percent).map((field) => field.path)),
+);
+
+const formatValue = (value, path) =>
+  typeof value === "boolean"
+    ? value ? "on" : "off"
+    : PERCENT_PATHS.has(path)
+      ? percent(value)
+      : Number.isInteger(value) ? `${value}` : value.toFixed(2);
 
 function profileLines(profile, what = "lines") {
   if (!profile) return [];
@@ -1027,7 +1143,9 @@ function profileLines(profile, what = "lines") {
   const weights = profile.voice_weight_accuracy;
   if (weights) {
     const best = Object.entries(weights).sort((a, b) => b[1] - a[1])[0];
-    lines.push(`Tone of voice: your ${what} scored best at voice weight ${best[0]} (${percent(best[1])} correct).`);
+    lines.push(
+      `Tone of voice: your ${what} scored best at voice weight ${percent(Number(best[0]))} (${percent(best[1])} correct).`,
+    );
   }
   return lines.map((text) => el("li", { textContent: text }));
 }
@@ -1044,7 +1162,7 @@ function recommendationList(recommendations) {
         "span",
         {},
         el("strong", { textContent: `${rec.label}: ` }),
-        el("span", { className: "mono", textContent: `${formatValue(rec.current)} → ${formatValue(rec.value)}` }),
+        el("span", { className: "mono", textContent: `${formatValue(rec.current, rec.path)} → ${formatValue(rec.value, rec.path)}` }),
         el("span", { className: "setting-help", textContent: rec.reason }),
       ),
     );
@@ -1178,7 +1296,7 @@ function renderCalibration(msg) {
         : ".")
     : "Not calibrated yet. The app works without it, but calibration helps the voice model fit your mic.";
   const applied = (msg.applied ?? []).map((rec) =>
-    el("li", { textContent: `${rec.label}: ${formatValue(rec.current)} → ${formatValue(rec.value)}` }),
+    el("li", { textContent: `${rec.label}: ${formatValue(rec.current, rec.path)} → ${formatValue(rec.value, rec.path)}` }),
   );
   box.replaceChildren(
     el("p", { textContent: summary }),
@@ -1654,6 +1772,14 @@ async function importSetup() {
 
 // --- live view ------------------------------------------------------------------
 
+// Why the overlay shows what it shows, in words ("scores" shows the image's tier instead).
+const REASON_TEXT = {
+  startup: "Waiting for you to speak",
+  silence: "Back to neutral: you went quiet",
+  low_confidence: "Not sure, so back to neutral",
+  paused: "Not listening",
+};
+
 function renderState(msg) {
   $("emotion").textContent = msg.emotion;
   // The header chip shows the overlay on every page, e.g. while testing a hotkey.
@@ -1667,9 +1793,7 @@ function renderState(msg) {
       ? `holding “${msg.held_image}” (detected: ${msg.detected})`
       : msg.manual
         ? `held by hand (detected: ${msg.detected})`
-        : msg.reason === "scores"
-          ? `${msg.tier}`
-          : msg.reason;
+        : (REASON_TEXT[msg.reason] ?? (msg.reason === "scores" ? `${capitalize(msg.tier)} image` : msg.reason));
   renderManual(msg.held_image ? "held" : (msg.manual ?? null)); // "held" lights no button
   const img = $("preview-img");
   img.hidden = !msg.image;
@@ -1741,12 +1865,23 @@ function renderDebug(msg) {
     const score = shown?.[emotion] ?? 0;
     const fill = el("div", { className: "fill" });
     fill.style.width = `${(score * 100).toFixed(1)}%`;
+    const bar = el("div", { className: "bar" }, fill);
+    const needed = thresholdFor(emotion);
+    if (needed !== null) {
+      // The line a score has to reach before this emotion can show (Minimum confidence).
+      const mark = el("div", { className: "threshold" });
+      mark.style.left = `${needed * 100}%`;
+      bar.append(mark);
+    }
     return el(
       "div",
-      { className: `score${emotion === msg.emotion ? " top" : ""}` },
+      {
+        className: `score${emotion === msg.emotion ? " top" : ""}`,
+        title: needed === null ? "" : `${capitalize(emotion)} needs ${percent(needed)} to show`,
+      },
       el("span", { textContent: emotion }),
-      el("div", { className: "bar" }, fill),
-      el("span", { className: "mono", textContent: score.toFixed(2) }),
+      bar,
+      el("span", { className: "mono", textContent: percent(score) }),
     );
   });
   $("scores").replaceChildren(...rows);
@@ -1927,7 +2062,7 @@ function select(options, value, onChange) {
 
 function hotkeyTarget(b, index) {
   if (b.action === "emotion") {
-    return select(ui.emotions.map((e) => [e, e]), b.emotion, (emotion) => saveHotkey(index, { emotion }));
+    return select(ui.emotions.map((e) => [e, capitalize(e)]), b.emotion, (emotion) => saveHotkey(index, { emotion }));
   }
   if (b.action === "trigger") {
     const options = ui.triggers.map((t) => [t.id, triggerLabel(t)]);
