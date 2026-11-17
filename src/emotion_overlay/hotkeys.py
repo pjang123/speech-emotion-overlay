@@ -157,10 +157,6 @@ class HotkeyListener:
     def supported(self) -> bool:
         return sys.platform == "win32"
 
-    @property
-    def running(self) -> bool:
-        return self._thread is not None
-
     def start(self, keys: Sequence[str]) -> None:
         self.stop()
         self.failed = []

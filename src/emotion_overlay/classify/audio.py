@@ -30,13 +30,11 @@ def uses_int8(config: AudioEmotionConfig, device: str) -> bool:
 
 
 def needs_conversion(config: AudioEmotionConfig) -> bool:
-    """True if loading will first make the compressed CPU copy (takes a while, once)."""
+    """True if loading will first make the compressed CPU copy (takes a while, once).
+    Only checks local files; a model that isn't downloaded yet reports False."""
     if not uses_int8(config, torch_device(config.device, "voice emotion model")):
         return False
-    try:
-        return not onnx_voice.is_ready(config.model)
-    except Exception:
-        return False  # e.g. not downloaded yet; loading will say so
+    return onnx_voice.needs_converting(config.model)
 
 
 class AudioEmotionClassifier:

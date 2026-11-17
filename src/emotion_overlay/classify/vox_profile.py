@@ -65,6 +65,15 @@ def weights_path(model: str) -> Path:
     return Path(load_cached(hf_hub_download, model, filename="model.safetensors"))
 
 
+def cached_weights_path(model: str) -> Path | None:
+    """The checkpoint file if it's already in the local Hugging Face cache, else None.
+    Never goes online."""
+    from huggingface_hub import try_to_load_from_cache
+
+    path = try_to_load_from_cache(model, "model.safetensors")
+    return Path(path) if isinstance(path, str) else None
+
+
 @functools.cache
 def _module_type() -> Any:
     """The torch module class (defined lazily so importing this file doesn't load torch)."""

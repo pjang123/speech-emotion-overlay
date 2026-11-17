@@ -73,7 +73,7 @@ const SETTINGS = [
     note: "A second model listens to how you sound, not just your words, e.g. to catch sarcasm or a laugh.",
     fields: [
       { path: "audio_emotion.enabled", label: "Use tone of voice", type: "checkbox",
-        help: "The first time you turn this on it downloads a ~1.3 GB model." },
+        help: "The first time you turn this on it downloads a ~1.3 GB model. Turning it off frees the memory it uses." },
       { path: "audio_emotion.weight", label: "Voice weight", type: "number", percent: true,
         help: "How much your voice counts against your words: 0% = words only, 100% = voice only. Calibration recommends a value for you." },
     ],

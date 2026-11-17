@@ -45,12 +45,13 @@ def cache_file(model: str, weights: Path) -> Path:
     return folder() / f"{_prefix(model)}{revision}-r{RECIPE}-int8.onnx"
 
 
-def is_ready(model: str) -> bool:
-    """True if the converted copy exists (no conversion needed to load it)."""
-    return (
-        vox_profile.is_vox_profile(model)
-        and cache_file(model, vox_profile.weights_path(model)).exists()
-    )
+def needs_converting(model: str) -> bool:
+    """True if `model` is downloaded but its converted copy hasn't been made yet.
+    Only looks at local files: never downloads anything."""
+    if not vox_profile.is_vox_profile(model):
+        return False
+    weights = vox_profile.cached_weights_path(model)
+    return weights is not None and not cache_file(model, weights).exists()
 
 
 def prepare(model: str) -> Path:

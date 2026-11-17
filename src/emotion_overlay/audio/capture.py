@@ -113,12 +113,7 @@ class MicCapture:
         self._on_audio = on_audio
         self._stream: Any = None
         self.device_name = ""
-        self.samplerate = 0
         self.missing_device: str | None = None  # saved mic that wasn't connected
-
-    @property
-    def running(self) -> bool:
-        return self._stream is not None
 
     def start(
         self, device: int | None, name: str | None = None, hostapi: str | None = None
@@ -170,7 +165,6 @@ class MicCapture:
             raise
         self._stream = stream
         self.device_name = str(info["name"])
-        self.samplerate = rate
         log.info("Microphone open: %s @ %d Hz", self.device_name, rate)
 
     def stop(self) -> None:
