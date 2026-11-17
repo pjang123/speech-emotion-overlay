@@ -44,7 +44,7 @@ No technical knowledge needed. This is written for Windows 10 and 11. On a Mac, 
 **You'll need:**
 
 - A Windows PC (or a Mac / Linux PC, see above) and a microphone.
-- About **3.5 GB** of free disk space (about 7 GB to use an NVIDIA graphics card, 10 GB or more for an AMD one).
+- About **4 GB** of free disk space (about 7 GB to use an NVIDIA graphics card, 10 GB or more for an AMD one).
 - Internet for the **first start only**: the app downloads its models once (about 2 GB).
 - [OBS Studio](https://obsproject.com/) to show the pictures on stream. A browser tab works too.
 - A few pictures or GIFs: one or more for each mood.
@@ -158,8 +158,8 @@ All optional.
 |---|---|
 | **System** | Windows 10/11; macOS 14+ on Apple Silicon (M1 or newer; not Intel Macs); or 64-bit Linux (x86-64). Developed on Windows. Tested on Ubuntu 26.04 (CPU and NVIDIA) and on GitHub's Apple Silicon Macs (CPU). Global hotkeys are Windows-only |
 | **Microphone** | A dedicated input works best. "Stereo Mix" or desktop-audio devices pick up game sound too |
-| **Disk space** | About 3.5 GB; about 7 GB with NVIDIA support, 10 GB or more with AMD. Mostly the models, downloaded on first start |
-| **Graphics card** (optional) | Faster, and a more accurate speech model. About 4 GB of video memory is enough |
+| **Disk space** | About 4 GB; about 7 GB with NVIDIA support, 10 GB or more with AMD. Mostly the models, downloaded on first start (plus a 340 MB compressed voice model the app makes for the CPU) |
+| **Graphics card** (optional) | Faster, and a more accurate speech model. The app uses about 2.7 GB of video memory, so a 4 GB card is enough |
 | ↳ NVIDIA | GTX 10 series or newer, driver 580 or newer |
 | ↳ AMD | Radeon RX 7000/9000. Windows needs Adrenalin 26.2.2 or newer; on Linux any GPU ROCm 7.2 supports. **Not yet tested on AMD hardware** |
 | ↳ Apple | Any Apple Silicon Mac, used automatically through Metal. **Not yet tested on a real Mac's GPU** |
@@ -180,7 +180,7 @@ Windows 10 or 11, 64-bit. The [Beginner's guide](#beginners-guide) walks through
 
 | Runs on | Launcher | Disk space | Environment |
 |---|---|---|---|
-| The CPU (any PC) | `run-cpu.bat` | about 3.5 GB | `.venv` in the app's folder |
+| The CPU (any PC) | `run-cpu.bat` | about 4 GB | `.venv` in the app's folder |
 | An NVIDIA graphics card | `run-gpu.bat` | about 7 GB | `%LOCALAPPDATA%\emotion-overlay\gpu-venv` (CUDA build of PyTorch) |
 | An AMD Radeon graphics card | `run-amd.bat` | 10 GB or more | `%LOCALAPPDATA%\emotion-overlay\amd-venv` (AMD's ROCm build, Python 3.12) |
 
@@ -229,7 +229,7 @@ The first start takes several minutes (uv, Python and the packages go into `.ven
 
 ### Linux
 
-64-bit Linux on x86-64 (Ubuntu, Debian, Fedora, Arch…), with PipeWire or PulseAudio. Tested on Ubuntu 26.04 with the CPU and an NVIDIA GPU (RTX 5070 under WSL 2); AMD is untested. Disk space: about 3.5 GB (CPU), 7 GB (NVIDIA), 10 GB or more (AMD). There are no launchers or global hotkeys on Linux.
+64-bit Linux on x86-64 (Ubuntu, Debian, Fedora, Arch…), with PipeWire or PulseAudio. Tested on Ubuntu 26.04 with the CPU and an NVIDIA GPU (RTX 5070 under WSL 2); AMD is untested. Disk space: about 4 GB (CPU), 7 GB (NVIDIA), 10 GB or more (AMD). There are no launchers or global hotkeys on Linux.
 
 ```sh
 # 1. System packages: PortAudio (microphone), git, curl
@@ -706,7 +706,7 @@ The voice model is done before the words on both (on the CPU in all 28 test sent
 - **Audio stays in memory.** Sentences are processed and discarded. Nothing is written to disk unless you turn on `debug.save_audio` or `debug.save_transcripts`.
 - **Long-recording calibration** keeps its sentences' audio and transcripts in memory only, for the review list, until you discard it, start another or close the app. A file you upload or link is saved to a private temporary folder and deleted as soon as its sound has been analysed.
 - **Transcripts aren't logged** at the default log level, only timings and the detected emotion.
-- **No network after the first start,** except when you add an image or a recording from a link (only that link is fetched). Models load from the local cache; Hugging Face is contacted only if a model is missing. Telemetry is off. To check, run with `--log-level DEBUG` and look for HTTP requests.
+- **No network after the first start,** except when you add an image or a recording from a link (only that link is fetched). Models load from the local cache; Hugging Face is contacted only if a model is missing. The compressed voice model for the CPU is made on your PC from the downloaded one. Telemetry is off. To check, run with `--log-level DEBUG` and look for HTTP requests.
 - **Hotkeys don't watch your keyboard.** They use Windows' `RegisterHotKey`, which only reports the app's own combinations. There's no keyboard hook.
 - **The overlay never receives transcripts.** Only the setup page gets them.
 - **Calibration keeps only numbers.** `data/calibration.json` holds fitted corrections and accuracy figures, not recordings or words. It's left out of backups.
@@ -800,13 +800,16 @@ run-cpu.bat, run-gpu.bat,  Windows launchers: CPU, NVIDIA GPU and AMD GPU (the G
 run-mac.command            Mac launcher (Apple Silicon; uses the GPU when it can)
 .python-version            The Python version uv uses (3.13)
 LICENSE                    MIT licence
-pyproject.toml, uv.lock    Dependencies (extras: "gpu" = PyTorch for NVIDIA, "amd" = for AMD on Linux)
+pyproject.toml, uv.lock    Dependencies (extras: "gpu" = PyTorch for NVIDIA, "amd" = for AMD on Linux,
+                             "cpu" = CPU-only PyTorch for Linux)
 src/emotion_overlay/
   main.py                  Command line and startup
   pipeline.py              Worker threads: mic -> VAD -> speech-to-text + voice -> scores -> display
   audio/                   Microphone capture, voice activity detection
   asr.py                   Whisper (faster-whisper and transformers backends)
-  classify/                Text model, voice model (vox_profile.py), text window, fusion maths
+  classify/                Text model, voice model (vox_profile.py; onnx_voice.py = the compressed
+                             CPU copy), text window, fusion maths
+  emotions.py              The seven emotions and image groups
   state_machine.py         Decides what is shown (pure, no I/O)
   calibration.py           Calibration prompts, fitting and storage
   personalize.py           Recommended settings from calibration
@@ -814,16 +817,19 @@ src/emotion_overlay/
   slang.py, triggers.py    Slang table and word triggers
   images.py, fetch.py      Image store and validation; safe downloads from links
   compute.py               CPU/GPU detection (NVIDIA CUDA, AMD ROCm or Apple Metal)
+  model_cache.py           Loads models from the local cache first (no network once downloaded)
+  paths.py                 Where bundled files, settings and the cache live
   hotkeys.py               Windows global hotkeys
   obs.py                   OBS remote control (obs-websocket v5)
   settings.py, config.py   Settings that can change live; the config file
   backup.py                Export and import of your setup
   server/                  FastAPI app, WebSocket hub, image picker, calibration control, security
   selftest.py              --self-test
+  debug_store.py           Saves audio/transcripts only when a debug.* option is on
 web/                       Setup page and overlay page (plain JavaScript, no build step)
 ```
 
-Created when you use the app, and kept on your PC: `config.yaml` (settings) and `data/` (images, triggers, calibration).
+Created when you use the app, and kept on your PC: `config.yaml` (settings) and `data/` (images, triggers, calibration). Outside the app's folder: the downloaded models (Hugging Face cache) and the compressed voice model (`%LOCALAPPDATA%\emotion-overlay\cache` on Windows, `~/Library/Caches/emotion-overlay` on a Mac, `~/.cache/emotion-overlay` on Linux).
 
 </details>
 
