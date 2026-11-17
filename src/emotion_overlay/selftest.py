@@ -34,7 +34,7 @@ def _step(name: str, fn: Callable[[], str]) -> bool:
 def run_self_test(config: AppConfig) -> bool:
     from emotion_overlay.asr import load_transcriber
     from emotion_overlay.audio.vad import load_silero_speech_prob
-    from emotion_overlay.classify.audio import AudioEmotionClassifier
+    from emotion_overlay.classify.audio import AudioEmotionClassifier, uses_int8
     from emotion_overlay.classify.text import TextEmotionClassifier
 
     rng = np.random.default_rng(0)
@@ -57,8 +57,17 @@ def run_self_test(config: AppConfig) -> bool:
         return f"{HAPPY_TEXT!r} -> {top} {scores[top]:.2f}"
 
     def voice_model() -> str:
-        scores = AudioEmotionClassifier(config.audio_emotion).scores(noise)
-        return ", ".join(f"{label} {p:.2f}" for label, p in scores.items())
+        classifier = AudioEmotionClassifier(config.audio_emotion)
+        scores = classifier.scores(noise)
+        if uses_int8(config.audio_emotion, classifier.device) and classifier.runtime == "pytorch":
+            # The app still works (with the full model), but it should have been the
+            # compressed copy: report it instead of passing quietly.
+            raise AssertionError(
+                "the compressed voice model for the CPU couldn't be made or loaded "
+                "(details above); the app falls back to the full model"
+            )
+        heard = ", ".join(f"{label} {p:.2f}" for label, p in scores.items())
+        return f"{classifier.runtime} on {classifier.device}: {heard}"
 
     print("Self-test (the first run downloads the models, which takes a few minutes):")
     steps = [("voice activity model", vad), ("speech-to-text", asr), ("text emotion", text_model)]
