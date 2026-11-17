@@ -92,6 +92,9 @@ class AudioEmotionConfig(BaseModel):
     enabled: bool = True
     model: str = DEFAULT_VOICE_MODEL
     device: Device = "auto"  # GPU if PyTorch can use one (see compute.py), else CPU
+    # On the CPU, run a compressed (int8) copy of the voice model through ONNX Runtime:
+    # ~3.5x less memory, ~2.6x faster, made from the model once (classify/onnx_voice.py).
+    cpu_int8: bool = True
     weight: float = Field(0.25, ge=0.0, le=1.0)  # voice share of the fused score; 0 = words only
     label_map: dict[str, list[str]] = Field(
         default_factory=lambda: {k: list(v) for k, v in DEFAULT_AUDIO_LABEL_MAP.items()}

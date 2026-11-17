@@ -21,6 +21,7 @@ Results leave through `PipelineEvents` callbacks, which must be thread-safe.
 Transcripts are only logged at DEBUG level so they don't end up in console logs by default.
 """
 
+import contextlib
 import logging
 import queue
 import threading
@@ -94,6 +95,7 @@ class Pipeline:
         self._classifier: Any = None
         self._voice: Any = None
         self._voice_state = "off"  # off | loading | ready | failed
+        self._voice_lock = threading.Lock()  # guards _voice and _voice_state together
         self._voice_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
         self._calibration: Calibration | None = None
         self._calibration_listener: CalibrationListener | None = None
@@ -161,7 +163,7 @@ class Pipeline:
 
     def _reload(self) -> None:
         from emotion_overlay.asr import load_transcriber
-        from emotion_overlay.classify.audio import AudioEmotionClassifier
+        from emotion_overlay.classify.audio import AudioEmotionClassifier, needs_conversion
         from emotion_overlay.classify.text import TextEmotionClassifier
         from emotion_overlay.compute import release_gpu_memory
 
@@ -172,14 +174,22 @@ class Pipeline:
             transcriber = load_transcriber(cfg.asr)
             self._set_status("loading", "Switching processor: loading the emotion models...")
             classifier = TextEmotionClassifier(cfg.classifier)
-            voice = AudioEmotionClassifier(cfg.audio_emotion) if self._voice is not None else None
+            voice = None
+            if self._voice is not None and cfg.audio_emotion.enabled:
+                if needs_conversion(cfg.audio_emotion):
+                    self._set_status(
+                        "loading", "Switching processor: compressing the voice model (once)..."
+                    )
+                voice = AudioEmotionClassifier(cfg.audio_emotion)
         except Exception as exc:
             log.exception("Switching processor failed; keeping the current models")
             self._status = {**previous, "message": f"Couldn't switch processor: {exc}"}
         else:
             self._transcriber, self._classifier = transcriber, classifier
             if voice is not None:
-                self._voice = voice
+                with self._voice_lock:
+                    if self._voice is not None:  # not switched off meanwhile
+                        self._voice = voice
             release_gpu_memory()
             self._status = previous
             log.info("Models now on: %s", self.devices())
@@ -224,8 +234,9 @@ class Pipeline:
         if not self._booted.is_set():
             raise RuntimeError("the models are still loading")
         voice_job = None
-        if self._voice_ready():
-            voice_job = self._voice_pool.submit(self._voice.scores, audio)
+        voice = self._voice_ready()
+        if voice is not None:
+            voice_job = self._voice_pool.submit(voice.scores, audio)
         text = self._transcribe(audio)
         text_scores = self._sentence_scores(text)
         voice = voice_job.result() if voice_job is not None else {}
@@ -284,7 +295,12 @@ class Pipeline:
             self._set_status("error", f"Model loading failed: {exc}")
             return
         if cfg.audio_emotion.enabled:
-            self._set_status("loading", "Loading tone-of-voice model (first run downloads it)...")
+            from emotion_overlay.classify.audio import needs_conversion
+
+            message = "Loading tone-of-voice model (first run downloads it)..."
+            if needs_conversion(cfg.audio_emotion):
+                message = "Compressing the tone-of-voice model for the CPU (once, ~1.5 min)..."
+            self._set_status("loading", message)
             self._load_voice_model()
 
         self._booted.set()
@@ -300,25 +316,57 @@ class Pipeline:
         """Optional model: failure is logged and the app carries on with text only."""
         from emotion_overlay.classify.audio import AudioEmotionClassifier
 
-        self._voice_state = "loading"
+        with self._voice_lock:
+            self._voice_state = "loading"
         try:
-            self._voice = AudioEmotionClassifier(self._config.audio_emotion)
-            self._voice_state = "ready"
+            voice = AudioEmotionClassifier(self._config.audio_emotion)
         except Exception:
             log.exception("Tone-of-voice model failed to load; continuing with text only")
-            self._voice_state = "failed"
+            with self._voice_lock:
+                self._voice_state = "failed"
+        else:
+            with self._voice_lock:
+                self._voice, self._voice_state = voice, "ready"
+            self._release_voice_if_off()  # switched off while it was loading
         self._events.on_message(self.status())
 
-    def _voice_ready(self) -> bool:
-        """True if voice scoring should run now. Enabling it live loads it in the background."""
+    def _voice_ready(self) -> Any:
+        """The voice model if voice scoring should run now, else None. Enabling it live
+        loads it in the background."""
         if not self._config.audio_emotion.enabled:
-            return False
-        if self._voice is not None:
-            return True
-        if self._voice_state == "off":
+            return None
+        with self._voice_lock:
+            if self._voice is not None:
+                return self._voice
+            if self._voice_state != "off":
+                return None
             self._voice_state = "loading"
-            threading.Thread(target=self._load_voice_model, name="voice-load", daemon=True).start()
-        return False
+        threading.Thread(target=self._load_voice_model, name="voice-load", daemon=True).start()
+        return None
+
+    def _follow_voice_setting(self) -> None:
+        """Load or free the voice model as soon as tone of voice is switched on or off
+        (the VAD loop calls this), not only when the next sentence needs it."""
+        if not self._config.audio_emotion.enabled:
+            self._release_voice_if_off()
+        elif self._voice is None and self._voice_state == "off":
+            self._voice_ready()  # starts loading it in the background
+
+    def _release_voice_if_off(self) -> None:
+        """Free the voice model's memory (1.2 GB of RAM, or VRAM on a GPU) while tone of
+        voice is switched off."""
+        if self._config.audio_emotion.enabled or self._voice is None:
+            return
+        with self._voice_lock:
+            if self._voice is None:
+                return
+            self._voice, self._voice_state = None, "off"
+        log.info("Tone of voice switched off: voice model unloaded")
+        # On the voice thread, so it runs after any sentence still being scored, which
+        # holds the model until it's done.
+        with contextlib.suppress(RuntimeError):  # pool already shut down
+            self._voice_pool.submit(_release_memory)
+        self._events.on_message(self.status())
 
     def _open_mic(self) -> None:
         audio = self._config.audio
@@ -366,6 +414,7 @@ class Pipeline:
                 was_speaking = speaking
                 self._events.on_message({"type": "vad", "speaking": speaking})
 
+            self._follow_voice_setting()
             now = time.monotonic()
             with self._state_lock:
                 if speaking:
@@ -448,16 +497,18 @@ class Pipeline:
             }
         )
 
-    def _score_voice(self, audio: np.ndarray) -> tuple[Scores, float]:
+    @staticmethod
+    def _score_voice(voice: Any, audio: np.ndarray) -> tuple[Scores, float]:
         t = time.perf_counter()
-        return self._voice.scores(audio), (time.perf_counter() - t) * 1000
+        return voice.scores(audio), (time.perf_counter() - t) * 1000
 
     def _handle_utterance(self, utterance: Utterance) -> None:
         cfg = self._config
         started = time.monotonic()  # same clock as utterance.ended_at
         voice_job: Future[tuple[Scores, float]] | None = None
-        if self._voice_ready():
-            voice_job = self._voice_pool.submit(self._score_voice, utterance.audio)
+        voice = self._voice_ready()
+        if voice is not None:
+            voice_job = self._voice_pool.submit(self._score_voice, voice, utterance.audio)
 
         t_start = time.perf_counter()
         text = self._transcribe(utterance.audio)
@@ -628,3 +679,9 @@ class Pipeline:
                 q.get_nowait()
             except queue.Empty:
                 return
+
+
+def _release_memory() -> None:
+    from emotion_overlay.compute import release_gpu_memory
+
+    release_gpu_memory()

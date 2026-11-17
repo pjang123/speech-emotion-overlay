@@ -9,6 +9,8 @@ Paper: https://arxiv.org/abs/2505.14648. Original code:
 https://github.com/tiantiaf0627/vox-profile-release (src/model/emotion/wavlm_emotion.py).
 """
 
+import functools
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -53,15 +55,22 @@ def layer_states(backbone: Any, signal: Any) -> tuple[Any, ...]:
     return (*out.hidden_states[:-1], out.last_hidden_state)
 
 
-def build(model: str) -> Any:
-    """Load the model (cache first) and return it as a torch module in eval mode."""
-    import torch
+def weights_path(model: str) -> Path:
+    """The checkpoint file in the local Hugging Face cache (downloaded if missing).
+    Its folder is named after the exact revision, so it identifies the weights."""
     from huggingface_hub import hf_hub_download
-    from safetensors.torch import load_file
-    from torch import nn
-    from transformers import WavLMConfig, WavLMModel
 
     from emotion_overlay.model_cache import load_cached
+
+    return Path(load_cached(hf_hub_download, model, filename="model.safetensors"))
+
+
+@functools.cache
+def _module_type() -> Any:
+    """The torch module class (defined lazily so importing this file doesn't load torch)."""
+    import torch
+    from torch import nn
+    from transformers import WavLMConfig, WavLMModel
 
     class VoxProfileEmotion(nn.Module):
         def __init__(self, config: WavLMConfig) -> None:
@@ -89,13 +98,39 @@ def build(model: str) -> Any:
             features = self.model_seq(features.transpose(1, 2)).transpose(1, 2)
             return self.emotion_layer(features.mean(dim=1))  # logits, B x len(LABELS)
 
-    config = load_cached(WavLMConfig.from_pretrained, MODELS[model])
-    weights_path = load_cached(hf_hub_download, model, filename="model.safetensors")
-    state = load_file(weights_path)
-    module = VoxProfileEmotion(config)
+    return VoxProfileEmotion
+
+
+def assemble(config: Any, state: dict[str, Any], name: str = "model") -> Any:
+    """The module for a WavLM `config`, holding the checkpoint tensors in `state`.
+
+    It is created on the "meta" device (shapes only, no memory) and the checkpoint's
+    tensors are then used as its weights directly. Creating it normally would first
+    fill all 315M weights with random numbers (2.3 s for WavLM-large) only to
+    overwrite every one of them, and hold a second copy in memory meanwhile.
+    """
+    import itertools
+
+    import torch
+
+    with torch.device("meta"):
+        module = _module_type()(config)
     # The checkpoint also holds heads this app doesn't use (detailed classes, arousal,
     # valence, dominance); everything this module has must be present.
-    missing, _unused = module.load_state_dict(state, strict=False)
+    missing, _unused = module.load_state_dict(state, strict=False, assign=True)
+    tensors = itertools.chain(module.named_parameters(), module.named_buffers())
+    missing = [*missing, *(n for n, t in tensors if t.is_meta and n not in missing)]
     if missing:
-        raise ValueError(f"{model}: checkpoint is missing weights: {missing[:5]}")
+        raise ValueError(f"{name}: checkpoint is missing weights: {missing[:5]}")
     return module.eval()
+
+
+def build(model: str) -> Any:
+    """Load the model (cache first) and return it as a torch module in eval mode."""
+    from safetensors.torch import load_file
+    from transformers import WavLMConfig
+
+    from emotion_overlay.model_cache import load_cached
+
+    config = load_cached(WavLMConfig.from_pretrained, MODELS[model])
+    return assemble(config, load_file(weights_path(model)), model)

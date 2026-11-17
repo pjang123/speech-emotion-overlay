@@ -297,7 +297,7 @@ For AMD on Windows use `run-amd.bat`: AMD's Windows build isn't on a package ind
 **Uninstalling:**
 
 1. Export a backup first if you want to keep your images and settings (**Backup → Export setup**), then delete the app's folder.
-2. Windows: also delete `%LOCALAPPDATA%\emotion-overlay` (the GPU environments).
+2. Windows: also delete `%LOCALAPPDATA%\emotion-overlay` (the GPU environments and the compressed voice model). Mac: `~/Library/Caches/emotion-overlay`; Linux: `~/.cache/emotion-overlay`.
 3. Delete the downloaded models in the Hugging Face cache (`%USERPROFILE%\.cache\huggingface\hub` on Windows, `~/.cache/huggingface/hub` on Mac and Linux): the folders whose names contain `whisper`, `emotion-english-distilroberta` and `wavlm-large-categorical-emotion`. Leave the rest if other programs use Hugging Face models.
 4. Optional: remove uv with `uv self uninstall`, if nothing else uses it.
 
@@ -362,7 +362,7 @@ Settings are listed here in the order they appear on the page. Confidence values
 | With several images | Pick randomly | Random (never the same twice in a row) or cycle in order |
 | New image every sentence | Off | Switch to another image of the same emotion each time you speak |
 | **Tone of voice** | | |
-| Use tone of voice | On | Turn the voice model on or off |
+| Use tone of voice | On | Turn the voice model on or off. Off also frees its memory; on loads it again in a second or two |
 | Voice weight | 25% | How much the voice counts against the words. 0% = words only, 100% = voice only |
 | **Advanced → Pace in detail** | | All off by default (Fast). Slow and Normal set the first two |
 | Minimum time on screen | 0 s (off) | Keep each emotion at least this long. Normal: 3.5 s, Slow: 7 s |
@@ -525,6 +525,7 @@ audio_emotion:              # emotion from tone of voice
   enabled: true
   model: tiantiaf/wavlm-large-categorical-emotion
   device: auto
+  cpu_int8: true            # on the CPU, use a compressed copy of the voice model (made once; see "Speed")
   weight: 0.25              # voice share of the combined score; 0 = words only
   label_map:                # voice model label -> emotions it stands for; other labels are ignored
     anger: [anger]
@@ -633,7 +634,7 @@ flowchart LR
 1. **Sentences.** [Silero VAD](https://github.com/snakers4/silero-vad) scores each 32 ms of audio for speech. A sentence ends after a 400 ms pause; non-stop speech is cut every 6 s. While a sentence is going, the part so far is re-checked (words only) every 0.5 s of speech on a GPU, 1 s on a CPU.
 2. **Speech-to-text.** Whisper `base.en` via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. On a GPU, the larger and more accurate `large-v3-turbo` (about 110 ms per sentence there, about 5 s on a CPU), through faster-whisper if NVIDIA's CUDA 12 libraries are installed and otherwise 🤗 transformers (always on AMD and a Mac's GPU, and the fallback when Windows blocks faster-whisper). Text Whisper thinks is noise is dropped; otherwise it "hears" words like "you" in silence.
 3. **Emotion from the words.** [`j-hartmann/emotion-english-distilroberta-base`](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base) scores the last ~6 s of transcript, after slang is rewritten as plain English.
-4. **Emotion from the voice.** [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from [Vox-Profile](https://arxiv.org/abs/2505.14648): WavLM-large trained on MSP-Podcast (natural podcast speech, not actors), a simplified audio-only version of the top system in the INTERSPEECH 2025 speech emotion challenge. It's published for the authors' own code, so `classify/vox_profile.py` rebuilds its inference path and loads the weights directly. It runs alongside Whisper; if it's still busy when the words are scored, the words-only result shows first and is then refined.
+4. **Emotion from the voice.** [`tiantiaf/wavlm-large-categorical-emotion`](https://huggingface.co/tiantiaf/wavlm-large-categorical-emotion) from [Vox-Profile](https://arxiv.org/abs/2505.14648): WavLM-large trained on MSP-Podcast (natural podcast speech, not actors), a simplified audio-only version of the top system in the INTERSPEECH 2025 speech emotion challenge. It's published for the authors' own code, so `classify/vox_profile.py` rebuilds its inference path and loads the weights directly. It runs alongside Whisper; if it's still busy when the words are scored, the words-only result shows first and is then refined. On a GPU it runs in half precision. On the CPU the app runs a compressed copy instead (`classify/onnx_voice.py`): on first use it converts the model to ONNX and stores its matrix weights as 8-bit integers (about a minute, once; 340 MB instead of 1.2 GB), then runs it with ONNX Runtime. On 1468 test clips it chose the same final emotion as the full model 99.8% of the time. `cpu_int8: false` uses the full model.
 5. **Combining.** `final = (1 − w) · words + w · voice`, with `w = 0.25` by default. Calibration adds two small sets of per-emotion corrections in log space: one undoes a skew in the voice model for your voice and mic, one adjusts the combined result. The long-recording calibration's automatic step matches how often the voice model hears each emotion to how often your words express it, cutting an overused emotion by more than it boosts a rare one.
 6. **Deciding what to show** (`state_machine.py`, pure and unit-tested). The top emotion shows if it clears the minimum confidence. Silence returns to neutral. Optional anti-flicker rules are off by default.
 7. **Showing it.** The image picker applies tiers, rotation and fallbacks; the server sends the result over a WebSocket to the overlay in OBS, which plays the emotion's effect. With OBS control on, OBS switches scene or filters too.
@@ -693,10 +694,10 @@ From the end of a sentence to the new emotion being decided. On top come the ove
 
 | | Pause that ends a sentence | Speech-to-text | Voice model | Total (median) |
 |---|---|---|---|---|
-| CPU (16-thread Ryzen) | 400 ms | ~300–400 ms | ~500–850 ms, in parallel | ~0.7–0.8 s first reaction, ~0.8–1.3 s with voice |
+| CPU (16-thread Ryzen) | 400 ms | ~300–400 ms | ~80 ms (compressed copy), in parallel | ~0.7–0.8 s |
 | GPU (RTX 5070) | 400 ms | ~110 ms (`large-v3-turbo`) | ~30–50 ms, in parallel | ~0.55 s |
 
-On the CPU the words-only result appears first and the voice result follows; on the GPU both arrive together. On a GPU the models use about 3.5 GB of video memory. Speed on a Mac hasn't been measured on real hardware yet.
+The voice model is done before the words on both (on the CPU in all 28 test sentences; the full model there took ~880 ms with Whisper running alongside, so its result came half a second after the words). On a GPU the models use about 2.7 GB of video memory. Speed on a Mac hasn't been measured on real hardware yet.
 
 </details>
 
@@ -772,14 +773,14 @@ The server only listens on `127.0.0.1`, so other computers can't reach it. Web p
 
 **A link for the long-recording calibration doesn't work.** It must be a direct link to the file itself. Video pages (YouTube, Twitch, a Google Drive preview) are web pages, not files: download the file and use **Choose a file…**.
 
-**The first start is slow.** It downloads about 1.8 GB of models once, plus about 1.6 GB for `large-v3-turbo` the first time the GPU is used.
+**The first start is slow.** It downloads about 1.8 GB of models once, plus about 1.6 GB for `large-v3-turbo` the first time the GPU is used. On the CPU it also makes the compressed voice model once (about a minute).
 
 </details>
 
 ## Known limitations
 
 - **English only** by default. The speech-to-text language is a setting, but the default text emotion model is English.
-- **The voice model is big:** 1.3 GB, about 0.85 s per sentence on a CPU (about 40 ms on a GPU). It rarely recognises acted joy or disgust; the words do the work there.
+- **The voice model is big:** a 1.3 GB download. On the CPU the app runs a compressed 340 MB copy (about 80 ms per sentence; about 30 ms on a GPU). It rarely recognises acted joy or disgust; the words do the work there.
 - **Quick calibration is small.** 14 lines can only nudge the models, and the recommendations are only as good as how naturally you read them.
 - **Long-recording calibration's automatic step trusts your words.** It uses the text model as its reference, so it can't fix mistakes the words model makes, and in a mixed recording it also hears your friends unless you mark them **Not me**. Checking sentences fixes both.
 - **No prebuilt installer.** It would need code signing to get past Smart App Control, so the app runs from source.

@@ -18,6 +18,16 @@ def web_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "web"
 
 
+def cache_dir() -> Path:
+    """Per-user folder for files the app makes itself and can make again (the compressed
+    voice model). Not the app's folder: that may be synced (OneDrive) or replaced."""
+    if sys.platform == "win32" and os.environ.get("LOCALAPPDATA"):
+        return Path(os.environ["LOCALAPPDATA"]) / "emotion-overlay" / "cache"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "emotion-overlay"
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "emotion-overlay"
+
+
 def user_dir() -> Path:
     """Per-user folder for config.yaml and data/ in the installed app.
 

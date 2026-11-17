@@ -2,7 +2,7 @@
 
 import logging
 
-from emotion_overlay.compute import torch_device
+from emotion_overlay.compute import is_gpu, torch_device
 from emotion_overlay.config import ClassifierConfig
 from emotion_overlay.emotions import EMOTIONS, Scores
 from emotion_overlay.model_cache import load_cached
@@ -23,7 +23,11 @@ class TextEmotionClassifier:
             self._device,
         )
         self._tokenizer = load_cached(AutoTokenizer.from_pretrained, config.model)
-        model = load_cached(AutoModelForSequenceClassification.from_pretrained, config.model)
+        # Half precision on the GPU (half the memory, same scores), as Whisper does there.
+        dtype = torch.float16 if is_gpu(self.device) else torch.float32
+        model = load_cached(
+            AutoModelForSequenceClassification.from_pretrained, config.model, dtype=dtype
+        )
         self._model = model.to(self._device).eval()
 
         id2label = self._model.config.id2label
@@ -41,5 +45,5 @@ class TextEmotionClassifier:
             encoded = self._tokenizer(
                 text, return_tensors="pt", truncation=True, max_length=256
             ).to(self._device)
-            probs = torch.softmax(self._model(**encoded).logits[0], dim=-1).tolist()
+            probs = torch.softmax(self._model(**encoded).logits[0].float(), dim=-1).tolist()
         return {label: p for label, p in zip(self._labels, probs, strict=True) if label in EMOTIONS}
